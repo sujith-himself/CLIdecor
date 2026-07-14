@@ -16,7 +16,7 @@ if [ ! -f "$INSTALL_DIR/config.conf" ]; then
 fi
 
 chmod +x "$INSTALL_DIR/clidecor.sh"
-chmod +x "$INSTALL_DIR/src/imgrender.py"
+# imgrender.py is invoked as 'python3 imgrender.py', no execute bit needed
 
 # check python3 + Pillow (needed only if you use image_path)
 if ! command -v python3 >/dev/null; then
@@ -26,10 +26,13 @@ elif ! python3 -c "import PIL" >/dev/null 2>&1; then
 fi
 
 RC_FILE=""
-if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+# Check for zsh first (by file presence), then bash
+if [ -f "$HOME/.zshrc" ]; then
     RC_FILE="$HOME/.zshrc"
 elif [ -f "$HOME/.bashrc" ]; then
     RC_FILE="$HOME/.bashrc"
+elif [ -f "$HOME/.bash_profile" ]; then
+    RC_FILE="$HOME/.bash_profile"
 fi
 
 LINE="bash \$HOME/.config/clidecor/clidecor.sh"

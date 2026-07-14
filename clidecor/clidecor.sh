@@ -11,12 +11,15 @@ else
 fi
 
 # --- load config (key=value lines, ignore # comments/blank lines) ---
+# IFS= + splitting on first '=' only so values that contain '=' are preserved
 declare -A CFG
-while IFS='=' read -r key value; do
-    [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
-    key="$(echo "$key" | xargs)"
-    value="$(echo "$value" | xargs)"
-    CFG["$key"]="$value"
+while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# || -z "${line// }" ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="$(printf '%s' "$key" | xargs)"
+    value="$(printf '%s' "$value" | xargs)"
+    [ -n "$key" ] && CFG["$key"]="$value"
 done < "$CONFIG"
 
 # --- color codes ---
@@ -43,7 +46,9 @@ get_kernel() {
 
 get_uptime() {
     if command -v uptime >/dev/null; then
-        uptime -p 2>/dev/null | sed 's/^up //' || uptime
+        # uptime -p is GNU-only; fall back to parsing raw uptime output
+        uptime -p 2>/dev/null | sed 's/^up //' || \
+        uptime 2>/dev/null | sed 's/.*up \([^,]*\).*/\1/' | xargs
     fi
 }
 
@@ -100,8 +105,13 @@ get_battery() {
 }
 
 get_localip() {
-    if command -v hostname >/dev/null; then
+    # ip route: modern Linux; hostname -I: older Linux; ifconfig: macOS/BSD
+    if command -v ip >/dev/null 2>&1; then
+        ip route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}'
+    elif command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
         hostname -I 2>/dev/null | awk '{print $1}'
+    elif command -v ifconfig >/dev/null 2>&1; then
+        ifconfig 2>/dev/null | awk '/inet /{if($2!="127.0.0.1") {print $2; exit}}'
     fi
 }
 

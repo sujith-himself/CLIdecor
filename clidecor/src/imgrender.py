@@ -29,11 +29,13 @@ def render_color(path, width_cols):
     px = img.load()
     out_lines = []
     # walk two pixel-rows at a time -> one text row using upper half block
-    for y in range(0, h - 1, 2):
+    # use range(0, h, 2) so odd-height images don't drop the last row
+    for y in range(0, h, 2):
         line = []
         for x in range(w):
             top = px[x, y]
-            bot = px[x, y + 1]
+            # if height is odd and this is the last row, reuse top as bottom
+            bot = px[x, y + 1] if y + 1 < h else top
             line.append(
                 f"\033[38;2;{top[0]};{top[1]};{top[2]}m"
                 f"\033[48;2;{bot[0]};{bot[1]};{bot[2]}m▀"

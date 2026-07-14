@@ -66,7 +66,14 @@ bash ~/.config/clidecor/clidecor.sh
 
 ## Uninstall
 
-Remove the `# CLI DECOR` block from your `.bashrc`/`.zshrc`, then:
+Remove the CLI DECOR block from your `.bashrc`/`.zshrc`. It looks like this:
+
+```
+# CLI DECOR - runs on new terminal
+bash $HOME/.config/clidecor/clidecor.sh
+```
+
+Then delete the install directory:
 
 ```bash
 rm -rf ~/.config/clidecor
