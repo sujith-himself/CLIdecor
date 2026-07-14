@@ -22,7 +22,9 @@ chmod +x "$INSTALL_DIR/clidecor.sh"
 if ! command -v python3 >/dev/null; then
     echo "note: python3 not found — image logo feature won't work, but text info still will."
 elif ! python3 -c "import PIL" >/dev/null 2>&1; then
-    echo "note: Pillow not found — run 'pip install Pillow' if you want to use image_path."
+    echo "note: Pillow not found — image logo won't work until you install it."
+    echo "      Debian/Ubuntu/Kali:  sudo apt install python3-pil"
+    echo "      Other / macOS:       pip install Pillow"
 fi
 
 RC_FILE=""

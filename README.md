@@ -32,9 +32,16 @@ in any image as the logo using real truecolor half-block rendering.
 ## Requirements
 
 - **bash** — any modern version
-- **python3 + Pillow** — only needed for image logos. Install with:
+- **python3 + Pillow** — only needed for image logos.
   ```bash
+  # Debian / Ubuntu / Kali (recommended)
+  sudo apt install python3-pil
+
+  # Other distros / macOS
   pip install Pillow
+
+  # If pip is blocked (externally-managed-environment error)
+  pip install Pillow --break-system-packages
   ```
   Without Pillow, the default ASCII logo and all info fields work fine.
 
@@ -140,7 +147,14 @@ image_width=28
 ### Step 1 — Install Pillow
 
 ```bash
+# Debian / Ubuntu / Kali
+sudo apt install python3-pil
+
+# Other distros / macOS
 pip install Pillow
+
+# If pip gives 'externally-managed-environment' error
+pip install Pillow --break-system-packages
 ```
 
 ### Step 2 — Pick your image
