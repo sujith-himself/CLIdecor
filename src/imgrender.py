@@ -54,8 +54,13 @@ def load_and_prepare(path, width_cols, rows_multiplier=2, block_size=1):
     if target_h % 2 != 0:
         target_h += 1
 
-    # NEAREST for crisp edges (no blurry interpolation)
-    img = img.resize((width_cols, target_h), Image.NEAREST)
+    # Use LANCZOS (or falls back to BICUBIC) for smoother gradients and anti-aliasing
+    try:
+        resample_filter = Image.Resampling.LANCZOS
+    except AttributeError:
+        resample_filter = Image.BICUBIC
+
+    img = img.resize((width_cols, target_h), resample_filter)
     return img
 
 
