@@ -118,6 +118,10 @@ image_style=color
 # How many terminal columns wide the logo should be.
 # Typical values: 20–24 for narrow windows, 28–36 for wide ones.
 image_width=28
+
+# pixel_size: 1 = smooth/natural, 2-4 = chunky pixel-art blocks
+# higher values = bigger blocky pixels, more retro look
+pixel_size=1
 ```
 
 ### Field reference
@@ -139,6 +143,7 @@ image_width=28
 | `image_path` | file path | Path to your logo image |
 | `image_style` | `color` / `ascii` | Rendering mode for the image |
 | `image_width` | integer | Logo width in terminal columns |
+| `pixel_size` | `1`–`4` | `1` = smooth, `2-4` = chunky retro pixel-art blocks |
 
 ---
 
@@ -172,6 +177,7 @@ Large photographs work but turn into color noise. Smaller, simpler images = bett
 image_path=/home/youruser/pictures/logo.png
 image_style=color
 image_width=28
+pixel_size=1   # try 2 or 3 for chunky pixel-art look
 ```
 
 - Use an **absolute path** — relative paths work when run from the script's dir but break when called from your shell rc.

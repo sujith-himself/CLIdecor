@@ -158,10 +158,11 @@ fi
 logo_block=()
 img_width="${CFG[image_width]:-28}"
 img_style="${CFG[image_style]:-color}"
+img_pixel_size="${CFG[pixel_size]:-1}"
 if [ -n "${CFG[image_path]}" ] && [ -f "${CFG[image_path]}" ]; then
     while IFS= read -r rline; do
         logo_block+=("$rline")
-    done < <(python3 "$SCRIPT_DIR/src/imgrender.py" "${CFG[image_path]}" "$img_width" "$img_style" 2>/dev/null)
+    done < <(python3 "$SCRIPT_DIR/src/imgrender.py" "${CFG[image_path]}" "$img_width" "$img_style" "$img_pixel_size" 2>/dev/null)
 fi
 if [ "${#logo_block[@]}" -eq 0 ]; then
     for l in "${DEFAULT_LOGO[@]}"; do
