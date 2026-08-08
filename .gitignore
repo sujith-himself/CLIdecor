@@ -1,0 +1,7 @@
+# Build artifacts
+clidecor
+clidecor.exe
+*.o
+*.exe
+*.cache
+.cache/

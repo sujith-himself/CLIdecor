@@ -1,0 +1,837 @@
+#ifdef _WIN32
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <lmcons.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <unistd.h>
+#include <sys/utsname.h>
+#include <sys/statvfs.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <pwd.h>
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#endif
+#endif
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+#include <unordered_map>
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <iomanip>
+#include <tuple>
+#include <random>
+#include <cmath>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+// ─── Utility Helpers ─────────────────────────────────────────────────────────
+
+static std::string trim(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, (last - first + 1));
+}
+
+static std::string exec(const char* cmd) {
+    char buffer[256];
+    std::string result = "";
+#ifdef _WIN32
+    FILE* pipe = _popen(cmd, "r");
+#else
+    FILE* pipe = popen(cmd, "r");
+#endif
+    if (!pipe) return "";
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+        result += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+        result.pop_back();
+    }
+    return result;
+}
+
+// ─── Config Parser ───────────────────────────────────────────────────────────
+
+struct Config {
+    std::unordered_map<std::string, std::string> settings;
+
+    bool get_bool(const std::string& key, bool default_val = true) const {
+        auto it = settings.find(key);
+        if (it == settings.end()) return default_val;
+        std::string val = trim(it->second);
+        if (val == "1" || val == "true" || val == "yes" || val == "on") return true;
+        if (val == "0" || val == "false" || val == "no" || val == "off") return false;
+        return default_val;
+    }
+
+    int get_int(const std::string& key, int default_val = 0) const {
+        auto it = settings.find(key);
+        if (it == settings.end()) return default_val;
+        try {
+            return std::stoi(trim(it->second));
+        } catch (...) {
+            return default_val;
+        }
+    }
+
+    std::string get_string(const std::string& key, const std::string& default_val = "") const {
+        auto it = settings.find(key);
+        if (it == settings.end()) return default_val;
+        return trim(it->second);
+    }
+
+    static std::string get_default_config_path() {
+        std::string home_dir = "";
+#ifdef _WIN32
+        const char* userprofile = std::getenv("USERPROFILE");
+        if (userprofile) home_dir = userprofile;
+#else
+        const char* home = std::getenv("HOME");
+        if (home) {
+            home_dir = home;
+        } else {
+            struct passwd* pw = getpwuid(getuid());
+            if (pw) home_dir = pw->pw_dir;
+        }
+#endif
+        if (!home_dir.empty()) {
+            std::string cfg = home_dir + "/.config/clidecor/config.conf";
+            std::ifstream f(cfg.c_str());
+            if (f.good()) return cfg;
+        }
+        return "config.conf";
+    }
+
+    static Config load_from_file(const std::string& filepath) {
+        Config cfg;
+        std::ifstream file(filepath.c_str());
+        if (!file.is_open()) return cfg;
+
+        std::string line;
+        while (std::getline(file, line)) {
+            line = trim(line);
+            if (line.empty() || line[0] == '#') continue;
+
+            size_t eq_pos = line.find('=');
+            if (eq_pos != std::string::npos) {
+                std::string key = trim(line.substr(0, eq_pos));
+                std::string val = trim(line.substr(eq_pos + 1));
+                if (!key.empty()) cfg.settings[key] = val;
+            }
+        }
+        return cfg;
+    }
+};
+
+// ─── System Metrics Provider ─────────────────────────────────────────────────
+
+namespace SysInfo {
+
+std::string get_user_host() {
+    std::string user = "";
+    std::string host = "";
+#ifdef _WIN32
+    char username[UNLEN + 1];
+    DWORD username_len = UNLEN + 1;
+    if (GetUserNameA(username, &username_len)) user = username;
+
+    char hostname[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD hostname_len = MAX_COMPUTERNAME_LENGTH + 1;
+    if (GetComputerNameA(hostname, &hostname_len)) host = hostname;
+#else
+    const char* u = std::getenv("USER");
+    if (u) user = u;
+    else {
+        struct passwd* pw = getpwuid(getuid());
+        if (pw) user = pw->pw_name;
+    }
+    char h[256];
+    if (gethostname(h, sizeof(h)) == 0) host = h;
+#endif
+    if (user.empty()) user = "user";
+    if (host.empty()) host = "localhost";
+    return user + "@" + host;
+}
+
+std::string get_os() {
+#ifdef _WIN32
+    std::string res = trim(exec("wmic os get Caption 2>NUL | findstr /V Caption"));
+    if (!res.empty()) return res;
+    return "Windows";
+#elif defined(__APPLE__)
+    std::string ver = trim(exec("sw_vers -productVersion"));
+    return ver.empty() ? "macOS" : "macOS " + ver;
+#else
+    std::ifstream file("/etc/os-release");
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.find("PRETTY_NAME=") == 0) {
+                std::string val = line.substr(12);
+                if (!val.empty() && val.front() == '"') val = val.substr(1);
+                if (!val.empty() && val.back() == '"') val.pop_back();
+                return trim(val);
+            }
+        }
+    }
+    struct utsname info;
+    if (uname(&info) == 0) return trim(info.sysname);
+    return "Linux";
+#endif
+}
+
+std::string get_kernel() {
+#ifdef _WIN32
+    std::string ver = trim(exec("cmd /c ver"));
+    if (ver.rfind("Microsoft Windows [", 0) == 0 && ver.back() == ']') {
+        ver = ver.substr(19, ver.length() - 20);
+    }
+    return ver;
+#else
+    struct utsname info;
+    if (uname(&info) == 0) return trim(info.release);
+    return "Unknown";
+#endif
+}
+
+std::string get_uptime() {
+#ifdef _WIN32
+    DWORD uptime_ms = GetTickCount();
+    long long uptime_sec = uptime_ms / 1000;
+#else
+    long long uptime_sec = 0;
+    std::ifstream file("/proc/uptime");
+    if (file.is_open()) {
+        file >> uptime_sec;
+    } else {
+        std::string up_str = exec("uptime -p 2>/dev/null");
+        if (!up_str.empty()) return up_str;
+    }
+#endif
+    if (uptime_sec <= 0) return "Unknown";
+    long long days = uptime_sec / 86400;
+    long long hours = (uptime_sec % 86400) / 3600;
+    long long mins = (uptime_sec % 3600) / 60;
+
+    std::ostringstream ss;
+    if (days > 0) ss << days << (days == 1 ? " day, " : " days, ");
+    if (hours > 0) ss << hours << (hours == 1 ? " hour, " : " hours, ");
+    ss << mins << (mins == 1 ? " minute" : " minutes");
+    return ss.str();
+}
+
+std::string get_packages() {
+#ifdef _WIN32
+    return "";
+#else
+    std::vector<std::string> pkgs;
+    if (access("/usr/bin/dpkg-query", F_OK) == 0) {
+        std::string res = exec("dpkg-query -f '.\\n' -W 2>/dev/null | wc -l");
+        if (!res.empty() && res != "0") pkgs.push_back(res + " (dpkg)");
+    } else if (access("/usr/bin/pacman", F_OK) == 0) {
+        std::string res = exec("pacman -Qq 2>/dev/null | wc -l");
+        if (!res.empty() && res != "0") pkgs.push_back(res + " (pacman)");
+    } else if (access("/usr/bin/rpm", F_OK) == 0) {
+        std::string res = exec("rpm -qa 2>/dev/null | wc -l");
+        if (!res.empty() && res != "0") pkgs.push_back(res + " (rpm)");
+    }
+    if (access("/usr/bin/flatpak", F_OK) == 0) {
+        std::string res = exec("flatpak list 2>/dev/null | wc -l");
+        if (!res.empty() && res != "0") pkgs.push_back(res + " (flatpak)");
+    }
+    if (pkgs.empty()) return "";
+    std::string out = "";
+    for (size_t i = 0; i < pkgs.size(); ++i) {
+        out += pkgs[i] + (i + 1 < pkgs.size() ? ", " : "");
+    }
+    return out;
+#endif
+}
+
+std::string get_shell() {
+    const char* sh = std::getenv("SHELL");
+    if (sh) {
+        std::string path(sh);
+        size_t idx = path.find_last_of("/\\");
+        if (idx != std::string::npos) return path.substr(idx + 1);
+        return path;
+    }
+#ifdef _WIN32
+    return "cmd.exe";
+#else
+    return "bash";
+#endif
+}
+
+std::string get_terminal() {
+    const char* term_prog = std::getenv("TERM_PROGRAM");
+    if (term_prog) return term_prog;
+    const char* term = std::getenv("TERM");
+    if (term) return term;
+#ifdef _WIN32
+    return "Windows Terminal / Console";
+#else
+    return "Terminal";
+#endif
+}
+
+std::string get_resolution() {
+#ifdef _WIN32
+    int w = GetSystemMetrics(SM_CXSCREEN);
+    int h = GetSystemMetrics(SM_CYSCREEN);
+    if (w > 0 && h > 0) return std::to_string(w) + "x" + std::to_string(h);
+    return "";
+#else
+    std::string res = exec("xdpyinfo 2>/dev/null | grep dimensions | awk '{print $2}'");
+    if (!res.empty()) return res;
+    return exec("xrandr 2>/dev/null | awk '/\\*/{print $1; exit}'");
+#endif
+}
+
+std::string get_cpu() {
+#ifdef _WIN32
+    return trim(exec("wmic cpu get Name 2>NUL | findstr /V Name"));
+#elif defined(__APPLE__)
+    char buf[128];
+    size_t len = sizeof(buf);
+    if (sysctlbyname("machdep.cpu.brand_string", &buf, &len, NULL, 0) == 0) return trim(buf);
+    return "Apple Silicon / Intel";
+#else
+    std::ifstream file("/proc/cpuinfo");
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.find("model name") == 0) {
+                size_t colon = line.find(':');
+                if (colon != std::string::npos) {
+                    std::string cpu = line.substr(colon + 1);
+                    std::string remove_list[] = {"(R)", "(TM)", " CPU", " Processor", " Core ", " with Radeon Graphics"};
+                    for (const auto& s : remove_list) {
+                        size_t pos = 0;
+                        while ((pos = cpu.find(s, pos)) != std::string::npos) {
+                            cpu.erase(pos, s.length());
+                        }
+                    }
+                    return trim(cpu);
+                }
+            }
+        }
+    }
+    return "Generic CPU";
+#endif
+}
+
+int get_cpu_usage() {
+#ifdef _WIN32
+    return 0;
+#else
+    std::ifstream file("/proc/stat");
+    if (!file.is_open()) return 0;
+    std::string line;
+    std::getline(file, line);
+    if (line.rfind("cpu ", 0) != 0) return 0;
+
+    std::istringstream ss(line);
+    std::string cpu_label;
+    long long user, nice, system, idle, iowait, irq, softirq, steal;
+    if (ss >> cpu_label >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal) {
+        long long total = user + nice + system + idle + iowait + irq + softirq + steal;
+        if (total <= 0) return 0;
+        return (int)(((total - idle) * 100) / total);
+    }
+    return 0;
+#endif
+}
+
+std::string get_gpu() {
+#ifdef _WIN32
+    return trim(exec("wmic path win32_videocard get name 2>NUL | findstr /V Name"));
+#elif defined(__APPLE__)
+    return trim(exec("system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{print $2; exit}'"));
+#else
+    return trim(exec("lspci 2>/dev/null | grep -i 'vga\\|3d\\|display' | grep -i 'nvidia\\|amd\\|radeon\\|intel\\|geforce' | head -1 | cut -d: -f3"));
+#endif
+}
+
+std::tuple<long long, long long> get_memory() {
+#ifdef _WIN32
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        long long total_mb = memInfo.ullTotalPhys / (1024 * 1024);
+        long long free_mb = memInfo.ullAvailPhys / (1024 * 1024);
+        return {total_mb - free_mb, total_mb};
+    }
+    return {0, 0};
+#elif defined(__APPLE__)
+    int mib[2] = {CTL_HW, HW_MEMSIZE};
+    int64_t total_bytes = 0;
+    size_t len = sizeof(total_bytes);
+    sysctl(mib, 2, &total_bytes, &len, NULL, 0);
+    long long total_mb = total_bytes / (1024 * 1024);
+    return {total_mb / 2, total_mb};
+#else
+    std::ifstream file("/proc/meminfo");
+    if (!file.is_open()) return {0, 0};
+    long long total_kb = 0, avail_kb = 0;
+    std::string key;
+    long long val;
+    std::string unit;
+    while (file >> key >> val >> unit) {
+        if (key == "MemTotal:") total_kb = val;
+        else if (key == "MemAvailable:") avail_kb = val;
+    }
+    long long total_mb = total_kb / 1024;
+    long long used_mb = (total_kb - avail_kb) / 1024;
+    return {used_mb, total_mb};
+#endif
+}
+
+std::string get_disk() {
+#ifdef _WIN32
+    ULARGE_INTEGER freeBytes, totalBytes, totalFreeBytes;
+    if (GetDiskFreeSpaceExA("C:\\", &freeBytes, &totalBytes, &totalFreeBytes)) {
+        long long total_gb = totalBytes.QuadPart / (1024 * 1024 * 1024);
+        long long free_gb = totalFreeBytes.QuadPart / (1024 * 1024 * 1024);
+        long long used_gb = total_gb - free_gb;
+        int pct = total_gb > 0 ? (int)((used_gb * 100) / total_gb) : 0;
+        return std::to_string(used_gb) + "G / " + std::to_string(total_gb) + "G (" + std::to_string(pct) + "%)";
+    }
+    return "";
+#else
+    struct statvfs stat;
+    if (statvfs("/", &stat) == 0) {
+        long long total = (stat.f_blocks * stat.f_frsize) / (1024 * 1024 * 1024);
+        long long free = (stat.f_bfree * stat.f_frsize) / (1024 * 1024 * 1024);
+        long long used = total - free;
+        int pct = total > 0 ? (int)((used * 100) / total) : 0;
+        return std::to_string(used) + "G / " + std::to_string(total) + "G (" + std::to_string(pct) + "%)";
+    }
+    return "";
+#endif
+}
+
+std::string get_battery() {
+#ifdef _WIN32
+    SYSTEM_POWER_STATUS status;
+    if (GetSystemPowerStatus(&status)) {
+        if (status.BatteryFlag != 128 && status.BatteryLifePercent != 255) {
+            std::string state = (status.ACLineStatus == 1) ? "charging" : "discharging";
+            return std::to_string(status.BatteryLifePercent) + "% (" + state + ")";
+        }
+    }
+    return "";
+#else
+    std::ifstream cap_file("/sys/class/power_supply/BAT0/capacity");
+    if (cap_file.is_open()) {
+        int cap;
+        cap_file >> cap;
+        std::string status = "discharging";
+        std::ifstream stat_file("/sys/class/power_supply/BAT0/status");
+        if (stat_file.is_open()) stat_file >> status;
+        return std::to_string(cap) + "% (" + status + ")";
+    }
+    return "";
+#endif
+}
+
+std::string get_local_ip() {
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) == 0) {
+        char hostname[256];
+        if (gethostname(hostname, sizeof(hostname)) == 0) {
+            struct hostent* host = gethostbyname(hostname);
+            if (host && host->h_addr_list[0]) {
+                struct in_addr addr;
+                memcpy(&addr, host->h_addr_list[0], sizeof(struct in_addr));
+                std::string ip = inet_ntoa(addr);
+                WSACleanup();
+                return ip;
+            }
+        }
+        WSACleanup();
+    }
+    return "";
+#else
+    std::string ip = exec("hostname -I 2>/dev/null | awk '{print $1}'");
+    if (!ip.empty()) return ip;
+    return exec("ip route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i==\"src\") print $(i+1); exit}'");
+#endif
+}
+
+std::string get_public_ip() {
+    return exec("curl -s --max-time 2 https://api.ipify.org 2>/dev/null");
+}
+
+std::string get_weather(const std::string& location) {
+    return exec(("curl -s --max-time 2 \"wttr.in/" + location + "?format=3\" 2>/dev/null").c_str());
+}
+
+std::string get_git() {
+    std::string is_repo = exec("git rev-parse --is-inside-work-tree 2>/dev/null");
+    if (is_repo != "true") return "";
+    std::string branch = exec("git branch --show-current 2>/dev/null");
+    std::string dirty = exec("git status --short 2>/dev/null");
+    if (!dirty.empty()) return branch + " * (dirty)";
+    return branch + " \xe2\x9c\x93 (clean)";
+}
+
+} // namespace SysInfo
+
+// ─── Image Rendering Engine ──────────────────────────────────────────────────
+
+namespace ImgRender {
+
+struct RGB {
+    unsigned char r, g, b;
+};
+
+static const std::string ASCII_RAMP = " .,:;+*?%#@";
+static const RGB TERM_BG = {0, 0, 0};
+
+static bool is_bg(const RGB& p, int threshold = 20) {
+    return std::abs((int)p.r - (int)TERM_BG.r) <= threshold &&
+           std::abs((int)p.g - (int)TERM_BG.g) <= threshold &&
+           std::abs((int)p.b - (int)TERM_BG.b) <= threshold;
+}
+
+static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels, float x_ratio, float y_ratio) {
+    int px = std::min((int)(x_ratio), orig_w - 1);
+    int py = std::min((int)(y_ratio), orig_h - 1);
+    int idx = (py * orig_w + px) * channels;
+
+    unsigned char r = data[idx];
+    unsigned char g = data[idx + 1];
+    unsigned char b = data[idx + 2];
+    unsigned char a = (channels == 4) ? data[idx + 3] : 255;
+
+    if (a < 255) {
+        float alpha = a / 255.0f;
+        r = (unsigned char)(r * alpha + TERM_BG.r * (1.0f - alpha));
+        g = (unsigned char)(g * alpha + TERM_BG.g * (1.0f - alpha));
+        b = (unsigned char)(b * alpha + TERM_BG.b * (1.0f - alpha));
+    }
+    return {r, g, b};
+}
+
+std::vector<std::string> render_image(
+    const std::string& path,
+    int width_cols,
+    const std::string& style = "color",
+    int block_size = 1
+) {
+    std::vector<std::string> out_lines;
+    int orig_w, orig_h, channels;
+    unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &channels, 0);
+    if (!data) return out_lines;
+
+    if (width_cols <= 0) width_cols = 28;
+    if (block_size < 1) block_size = 1;
+
+    float aspect = (float)orig_h / (float)orig_w;
+    int rows_mult = (style == "ascii") ? 1 : 2;
+    int target_h = (int)(width_cols * aspect * 0.55f * rows_mult);
+    if (target_h < 2) target_h = 2;
+    if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
+
+    std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
+    for (int y = 0; y < target_h; ++y) {
+        for (int x = 0; x < width_cols; ++x) {
+            int effective_x = (x / block_size) * block_size;
+            int effective_y = (y / block_size) * block_size;
+            float rx = ((float)effective_x / (float)width_cols) * orig_w;
+            float ry = ((float)effective_y / (float)target_h) * orig_h;
+            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
+        }
+    }
+    stbi_image_free(data);
+
+    if (style == "ascii") {
+        for (int y = 0; y < target_h; ++y) {
+            std::string line = "";
+            for (int x = 0; x < width_cols; ++x) {
+                const RGB& p = grid[y][x];
+                float bright = (p.r * 0.299f + p.g * 0.587f + p.b * 0.114f) / 255.0f;
+                int idx = (int)(bright * (ASCII_RAMP.length() - 1));
+                idx = std::clamp(idx, 0, (int)ASCII_RAMP.length() - 1);
+                line += ASCII_RAMP[idx];
+            }
+            out_lines.push_back(line);
+        }
+    } else {
+        for (int y = 0; y < target_h; y += 2) {
+            std::ostringstream ss;
+            for (int x = 0; x < width_cols; ++x) {
+                RGB top = grid[y][x];
+                RGB bot = (y + 1 < target_h) ? grid[y + 1][x] : top;
+
+                bool top_bg = is_bg(top);
+                bool bot_bg = is_bg(bot);
+
+                if (top_bg && bot_bg) {
+                    ss << " ";
+                } else if (top_bg) {
+                    ss << "\033[38;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x84\033[0m"; // ▄
+                } else if (bot_bg) {
+                    ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m\xe2\x96\x80\033[0m"; // ▀
+                } else {
+                    ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m"
+                       << "\033[48;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x80\033[0m";
+                }
+            }
+            out_lines.push_back(ss.str());
+        }
+    }
+    return out_lines;
+}
+
+} // namespace ImgRender
+
+// ─── Main Entry Point ────────────────────────────────────────────────────────
+
+static std::string build_bar(int pct, const std::string& accent_code, const std::string& val_code) {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    int filled = (pct * 16) / 100;
+    int empty = 16 - filled;
+
+    std::string bar = "[" + accent_code;
+    for (int i = 0; i < filled; ++i) bar += "\xe2\x96\x88"; // █
+    bar += "\033[0m" + val_code;
+    for (int i = 0; i < empty; ++i) bar += "\xe2\x96\x91"; // ░
+    bar += "] " + std::to_string(pct) + "%";
+    return bar;
+}
+
+static std::string get_accent_code(const std::string& theme, const std::string& accent_color) {
+    std::string color = accent_color;
+    if (theme == "hacker") color = "green";
+    else if (theme == "dracula") color = "magenta";
+    else if (theme == "nord") color = "blue";
+    else if (theme == "fire") color = "red";
+    else if (theme == "gold") color = "yellow";
+
+    if (color == "red") return "\033[31m";
+    if (color == "green") return "\033[32m";
+    if (color == "yellow") return "\033[33m";
+    if (color == "blue") return "\033[34m";
+    if (color == "magenta") return "\033[35m";
+    if (color == "cyan") return "\033[36m";
+    if (color == "white") return "\033[37m";
+    return "\033[36m";
+}
+
+int main(int argc, char* argv[]) {
+    if (argc > 1) {
+        std::string arg = argv[1];
+        if (arg == "--help") {
+            std::cout << "CLI DECOR — neofetch replacement (C++ engine)\n\n"
+                      << "Usage:\n"
+                      << "  clidecor              run normally\n"
+                      << "  clidecor --refresh    clear cache and re-render\n"
+                      << "  clidecor --help       show this message\n\n"
+                      << "Config: ~/.config/clidecor/config.conf\n";
+            return 0;
+        } else if (arg == "--refresh") {
+            std::cout << "Cache cleared.\n";
+            return 0;
+        }
+    }
+
+    std::string config_path = Config::get_default_config_path();
+    Config cfg = Config::load_from_file(config_path);
+
+    std::string theme = cfg.get_string("theme", "default");
+    std::string accent_color = cfg.get_string("accent_color", "cyan");
+    std::string AC = get_accent_code(theme, accent_color);
+    std::string BOLD = "\033[1m";
+    std::string RESET = "\033[0m";
+    std::string VAL_COLOR = "\033[37m";
+
+    std::string user_host = SysInfo::get_user_host();
+    std::vector<std::pair<std::string, std::string>> info_items;
+
+    if (cfg.get_bool("show_os", true)) {
+        std::string os = SysInfo::get_os();
+        if (!os.empty()) info_items.push_back({"OS:", os});
+    }
+    if (cfg.get_bool("show_kernel", true)) {
+        std::string kernel = SysInfo::get_kernel();
+        if (!kernel.empty()) info_items.push_back({"Kernel:", kernel});
+    }
+    if (cfg.get_bool("show_uptime", true)) {
+        std::string uptime = SysInfo::get_uptime();
+        if (!uptime.empty()) info_items.push_back({"Uptime:", uptime});
+    }
+    if (cfg.get_bool("show_packages", true)) {
+        std::string pkgs = SysInfo::get_packages();
+        if (!pkgs.empty()) info_items.push_back({"Packages:", pkgs});
+    }
+    if (cfg.get_bool("show_shell", true)) {
+        std::string sh = SysInfo::get_shell();
+        if (!sh.empty()) info_items.push_back({"Shell:", sh});
+    }
+    if (cfg.get_bool("show_terminal", true)) {
+        std::string term = SysInfo::get_terminal();
+        if (!term.empty()) info_items.push_back({"Terminal:", term});
+    }
+    if (cfg.get_bool("show_resolution", true)) {
+        std::string res = SysInfo::get_resolution();
+        if (!res.empty()) info_items.push_back({"Resolution:", res});
+    }
+    if (cfg.get_bool("show_cpu", true)) {
+        std::string cpu = SysInfo::get_cpu();
+        if (!cpu.empty()) {
+            if (cfg.get_bool("show_bars", true) && cfg.get_bool("show_cpu_bar", true)) {
+                int pct = SysInfo::get_cpu_usage();
+                cpu += " " + build_bar(pct, AC, VAL_COLOR);
+            }
+            info_items.push_back({"CPU:", cpu});
+        }
+    }
+    if (cfg.get_bool("show_gpu", true)) {
+        std::string gpu = SysInfo::get_gpu();
+        if (!gpu.empty()) info_items.push_back({"GPU:", gpu});
+    }
+    if (cfg.get_bool("show_memory", true)) {
+        auto [used_mb, total_mb] = SysInfo::get_memory();
+        if (total_mb > 0) {
+            int pct = (int)((used_mb * 100) / total_mb);
+            std::string mem_str = std::to_string(used_mb) + "MiB / " + std::to_string(total_mb) + "MiB";
+            if (cfg.get_bool("show_bars", true)) {
+                mem_str += " " + build_bar(pct, AC, VAL_COLOR);
+            }
+            info_items.push_back({"Memory:", mem_str});
+        }
+    }
+    if (cfg.get_bool("show_disk", true)) {
+        std::string disk = SysInfo::get_disk();
+        if (!disk.empty()) info_items.push_back({"Disk:", disk});
+    }
+    if (cfg.get_bool("show_battery", false)) {
+        std::string batt = SysInfo::get_battery();
+        if (!batt.empty()) info_items.push_back({"Battery:", batt});
+    }
+    if (cfg.get_bool("show_localip", true)) {
+        std::string lip = SysInfo::get_local_ip();
+        if (!lip.empty()) info_items.push_back({"Local IP:", lip});
+    }
+    if (cfg.get_bool("show_publicip", false)) {
+        std::string pip = SysInfo::get_public_ip();
+        if (!pip.empty()) info_items.push_back({"Public IP:", pip});
+    }
+    if (cfg.get_bool("show_weather", false)) {
+        std::string loc = cfg.get_string("weather_location", "");
+        std::string wtr = SysInfo::get_weather(loc);
+        if (!wtr.empty()) info_items.push_back({"Weather:", wtr});
+    }
+    if (cfg.get_bool("show_git", true)) {
+        std::string git = SysInfo::get_git();
+        if (!git.empty()) info_items.push_back({"Git:", git});
+    }
+
+    std::vector<std::string> text_block;
+    text_block.push_back(AC + BOLD + user_host + RESET);
+    text_block.push_back(AC + std::string(user_host.length(), '-') + RESET);
+
+    for (const auto& item : info_items) {
+        std::ostringstream ss;
+        ss << AC << BOLD << std::left << std::setw(12) << item.first << RESET << " " << VAL_COLOR << item.second << RESET;
+        text_block.push_back(ss.str());
+    }
+
+    if (cfg.get_bool("show_palette", true)) {
+        text_block.push_back("");
+        std::string p1 = "", p2 = "";
+        std::vector<std::string> c1 = {"0;0;0", "170;0;0", "0;170;0", "170;170;0", "0;0;170", "170;0;170", "0;170;170", "170;170;170"};
+        std::vector<std::string> c2 = {"85;85;85", "255;85;85", "85;255;85", "255;255;85", "85;85;255", "255;85;255", "85;255;255", "255;255;255"};
+        for (const auto& c : c1) p1 += "\033[48;2;" + c + "m   \033[0m";
+        for (const auto& c : c2) p2 += "\033[48;2;" + c + "m   \033[0m";
+        text_block.push_back(p1);
+        text_block.push_back(p2);
+    }
+
+    std::string custom_txt = cfg.get_string("custom_text", "");
+    if (!custom_txt.empty()) {
+        std::vector<std::string> quotes;
+        std::stringstream ss(custom_txt);
+        std::string item;
+        while (std::getline(ss, item, '|')) {
+            if (!item.empty()) quotes.push_back(item);
+        }
+        if (!quotes.empty()) {
+            static std::mt19937 rng(std::random_device{}());
+            std::uniform_int_distribution<size_t> dist(0, quotes.size() - 1);
+            std::string selected = quotes[dist(rng)];
+            text_block.push_back("");
+            text_block.push_back(AC + BOLD + selected + RESET);
+        }
+    }
+
+    std::vector<std::string> logo_block;
+    std::string img_path = cfg.get_string("image_path", "");
+    int img_width = cfg.get_int("image_width", 28);
+    std::string img_style = cfg.get_string("image_style", "color");
+    int pixel_size = cfg.get_int("pixel_size", 1);
+
+    if (!img_path.empty()) {
+        logo_block = ImgRender::render_image(img_path, img_width, img_style, pixel_size);
+    }
+
+    if (logo_block.empty()) {
+        std::vector<std::string> default_logo = {
+            "    ___    ",
+            "   /   \\   ",
+            "  | O O |  ",
+            "  |  ^  |  ",
+            "   \\___/   ",
+            "  CLIDECOR "
+        };
+        for (const auto& l : default_logo) {
+            logo_block.push_back(AC + l + RESET);
+        }
+        img_width = 11;
+    }
+
+    size_t max_lines = std::max(logo_block.size(), text_block.size());
+    size_t pad_logo = (max_lines - logo_block.size()) / 2;
+    size_t pad_text = (max_lines - text_block.size()) / 2;
+
+    std::vector<std::string> new_logo(pad_logo, std::string(img_width, ' '));
+    new_logo.insert(new_logo.end(), logo_block.begin(), logo_block.end());
+
+    std::vector<std::string> new_text(pad_text, "");
+    new_text.insert(new_text.end(), text_block.begin(), text_block.end());
+
+    max_lines = std::max(new_logo.size(), new_text.size());
+
+    for (size_t i = 0; i < max_lines; ++i) {
+        std::string l_line = (i < new_logo.size()) ? new_logo[i] : std::string(img_width, ' ');
+        std::string t_line = (i < new_text.size()) ? new_text[i] : "";
+        std::cout << l_line << "   " << t_line << "\n";
+    }
+
+    return 0;
+}
