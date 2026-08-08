@@ -1240,8 +1240,20 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::vector<std::string> new_text(pad_text, "");
     new_text.insert(new_text.end(), text_block.begin(), text_block.end());
     while (new_text.size() < max_lines) new_text.push_back("");
-
     std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
+    std::string layout = cfg.get_string("layout", "image_left");
+
+    if (layout == "image_top") {
+        for (const auto& l : logo_block) out.push_back(l);
+        out.push_back("");
+        for (const auto& t : text_block) out.push_back(t);
+        return out;
+    } else if (layout == "image_bottom") {
+        for (const auto& t : text_block) out.push_back(t);
+        out.push_back("");
+        for (const auto& l : logo_block) out.push_back(l);
+        return out;
+    }
 
     for (size_t i = 0; i < max_lines; ++i) {
         std::string l_line = new_logo[i];
@@ -1271,7 +1283,12 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
         
         std::string t_line = (i < new_text.size()) ? new_text[i] : "";
-        out.push_back(l_line + "   " + t_line);
+        
+        if (layout == "image_right") {
+            out.push_back(t_line + std::string(3, ' ') + l_line);
+        } else { // image_left
+            out.push_back(l_line + std::string(3, ' ') + t_line);
+        }
     }
     return out;
 }
@@ -1303,6 +1320,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     
     std::vector<MenuItem> app_menu = {
         {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
+        {"Layout", "layout", {"image_left", "image_right", "image_top", "image_bottom"}},
         {"Show Bars", "show_bars", {}}
     };
 
