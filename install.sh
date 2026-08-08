@@ -46,7 +46,9 @@ fi
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 if [ -f "$INSTALL_DIR/$EXE_NAME" ]; then
-    ln -sf "$INSTALL_DIR/$EXE_NAME" "$BIN_DIR/clidecor"
+    echo '#!/bin/sh' > "$BIN_DIR/clidecor"
+    echo "exec \"$INSTALL_DIR/$EXE_NAME\" \"\$@\"" >> "$BIN_DIR/clidecor"
+    chmod +x "$BIN_DIR/clidecor"
 fi
 
 RC_FILE=""
