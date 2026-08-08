@@ -39,6 +39,7 @@
 #include <cmath>
 #include <thread>
 #include <chrono>
+#include <functional>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"

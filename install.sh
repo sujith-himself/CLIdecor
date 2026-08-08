@@ -8,12 +8,17 @@ INSTALL_DIR="$HOME/.config/clidecor"
 echo "Installing CLI DECOR (C++ engine) to $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
 
+LIBS=""
+if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
+    LIBS="-lws2_32"
+fi
+
 if command -v g++ >/dev/null 2>&1; then
     echo "Compiling C++ binary..."
-    g++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" || make -C "$SCRIPT_DIR"
+    g++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" $LIBS || make -C "$SCRIPT_DIR"
 elif command -v clang++ >/dev/null 2>&1; then
     echo "Compiling C++ binary with clang++..."
-    clang++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" || make -C "$SCRIPT_DIR"
+    clang++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" $LIBS || make -C "$SCRIPT_DIR"
 fi
 
 if [ -f "$SCRIPT_DIR/clidecor.exe" ]; then
