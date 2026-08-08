@@ -790,7 +790,9 @@ static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels,
 
 std::vector<std::string> render_image(
     const std::string& path,
-    int width_cols,
+    int base_width,
+    float scale_x = 1.0f,
+    float scale_y = 1.0f,
     const std::string& style = "color",
     int block_size = 1,
     int blur_radius = 0
@@ -800,13 +802,14 @@ std::vector<std::string> render_image(
     unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &channels, 0);
     if (!data) return out_lines;
 
-    if (width_cols <= 0) width_cols = 28;
+    if (base_width <= 0) base_width = 28;
     if (block_size < 1) block_size = 1;
+    
+    int width_cols = std::max(1, (int)(base_width * scale_x));
 
     float aspect = (float)orig_h / (float)orig_w;
     int rows_mult = (style == "ascii") ? 1 : 2;
-    int target_h = (int)(width_cols * aspect * 0.55f * rows_mult);
-    if (target_h < 2) target_h = 2;
+    int target_h = std::max(2, (int)(base_width * aspect * 0.55f * rows_mult * scale_y));
     if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
 
     std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
@@ -1172,13 +1175,18 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string img_style = cfg.get_string("image_style", "color");
     int pixel_size = cfg.get_int("pixel_size", 1);
     int blur_radius = cfg.get_int("image_blur", 0);
-    float scale = std::stod(cfg.get_string("image_scale", "1.0"));
+    
+    float scale_x = 1.0f;
+    try { scale_x = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
+    
+    float scale_y = 1.0f;
+    try { scale_y = std::stod(cfg.get_string("image_scale_y", "1.0")); } catch(...) {}
+    
     int pad_x = cfg.get_int("image_pad_x", 0);
     int pad_y = cfg.get_int("image_pad_y", 0);
 
     if (!img_path.empty()) {
-        int scaled_width = std::max(1, (int)(img_width * scale));
-        logo_block = ImgRender::render_image(img_path, scaled_width, img_style, pixel_size, blur_radius);
+        logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius);
     }
 
     if (logo_block.empty()) {
@@ -1385,8 +1393,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         else if (state == 4) { // Live Resize & Align
             left_lines.push_back("");
             left_lines.push_back("\033[1;33m=== Live Resize & Align ===\033[0m");
-            left_lines.push_back("[\033[1;32mW/S\033[0m] Scale Up/Down");
-            left_lines.push_back("[\033[1;32mUP/DOWN/LEFT/RIGHT\033[0m] Move Image");
+            left_lines.push_back("[\033[1;32mUP/DOWN\033[0m] Stretch Height");
+            left_lines.push_back("[\033[1;32mLEFT/RIGHT\033[0m] Stretch Width");
+            left_lines.push_back("[\033[1;32mW/A/S/D\033[0m] Move Image");
             left_lines.push_back("[\033[1;32mENTER or ESC\033[0m] Finish");
         }
         else if (state == 5) { // Reminder Box
@@ -1452,8 +1461,13 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     for (size_t i = 0; i < m.options.size(); ++i) {
                         if (m.options[i] == val) idx = i;
                     }
-                    if (key == 1003) idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
-                    else idx = (idx + 1) % m.options.size();
+                    if (key == 13 || key == 10) {
+                        state = 0; selected = 0; continue;
+                    } else if (key == 1003) {
+                        idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
+                    } else {
+                        idx = (idx + 1) % m.options.size();
+                    }
                     cfg.settings[m.key] = m.options[idx];
                 }
             }
@@ -1521,20 +1535,25 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 }
             }
             else if (state == 4) {
+                float sx = 1.0f; try { sx = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
+                float sy = 1.0f; try { sy = std::stod(cfg.get_string("image_scale_y", "1.0")); } catch(...) {}
+                
                 if (key == 119 || key == 87) { // W
-                    float s = std::stod(cfg.get_string("image_scale", "1.0"));
-                    cfg.settings["image_scale"] = std::to_string(s + 0.05f);
-                } else if (key == 115 || key == 83) { // S
-                    float s = std::stod(cfg.get_string("image_scale", "1.0"));
-                    if (s > 0.1f) cfg.settings["image_scale"] = std::to_string(s - 0.05f);
-                } else if (key == 1001) { // UP
                     cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) - 1);
-                } else if (key == 1002) { // DOWN
+                } else if (key == 115 || key == 83) { // S
                     cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) + 1);
-                } else if (key == 1003) { // LEFT
+                } else if (key == 97 || key == 65) { // A
                     cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) - 1);
-                } else if (key == 1004) { // RIGHT
+                } else if (key == 100 || key == 68) { // D
                     cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) + 1);
+                } else if (key == 1001) { // UP
+                    cfg.settings["image_scale_y"] = std::to_string(sy + 0.05f);
+                } else if (key == 1002) { // DOWN
+                    if (sy > 0.1f) cfg.settings["image_scale_y"] = std::to_string(sy - 0.05f);
+                } else if (key == 1003) { // LEFT
+                    if (sx > 0.1f) cfg.settings["image_scale_x"] = std::to_string(sx - 0.05f);
+                } else if (key == 1004) { // RIGHT
+                    cfg.settings["image_scale_x"] = std::to_string(sx + 0.05f);
                 } else if (key == 13 || key == 10 || key == 27 || key == 113) {
                     state = 3; selected = 0;
                 }
