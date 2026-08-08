@@ -743,30 +743,57 @@ static bool is_bg(const RGB& p, int threshold = 20) {
            std::abs((int)p.b - (int)TERM_BG.b) <= threshold;
 }
 
-static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels, float x_ratio, float y_ratio) {
+static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels, float x_ratio, float y_ratio, int blur_radius) {
+    if (blur_radius <= 0) {
+        int px = std::min((int)(x_ratio), orig_w - 1);
+        int py = std::min((int)(y_ratio), orig_h - 1);
+        int idx = (py * orig_w + px) * channels;
+        unsigned char r = data[idx];
+        unsigned char g = data[idx + 1];
+        unsigned char b = data[idx + 2];
+        unsigned char a = (channels == 4) ? data[idx + 3] : 255;
+        if (a < 255) {
+            float alpha = a / 255.0f;
+            r = (unsigned char)(r * alpha + TERM_BG.r * (1.0f - alpha));
+            g = (unsigned char)(g * alpha + TERM_BG.g * (1.0f - alpha));
+            b = (unsigned char)(b * alpha + TERM_BG.b * (1.0f - alpha));
+        }
+        return {r, g, b};
+    }
+    
+    // Box blur
     int px = std::min((int)(x_ratio), orig_w - 1);
     int py = std::min((int)(y_ratio), orig_h - 1);
-    int idx = (py * orig_w + px) * channels;
-
-    unsigned char r = data[idx];
-    unsigned char g = data[idx + 1];
-    unsigned char b = data[idx + 2];
-    unsigned char a = (channels == 4) ? data[idx + 3] : 255;
-
-    if (a < 255) {
-        float alpha = a / 255.0f;
-        r = (unsigned char)(r * alpha + TERM_BG.r * (1.0f - alpha));
-        g = (unsigned char)(g * alpha + TERM_BG.g * (1.0f - alpha));
-        b = (unsigned char)(b * alpha + TERM_BG.b * (1.0f - alpha));
+    long long r_total = 0, g_total = 0, b_total = 0;
+    int count = 0;
+    for (int dy = -blur_radius; dy <= blur_radius; ++dy) {
+        for (int dx = -blur_radius; dx <= blur_radius; ++dx) {
+            int nx = std::clamp(px + dx, 0, orig_w - 1);
+            int ny = std::clamp(py + dy, 0, orig_h - 1);
+            int idx = (ny * orig_w + nx) * channels;
+            unsigned char a = (channels == 4) ? data[idx + 3] : 255;
+            if (a < 255) {
+                float alpha = a / 255.0f;
+                r_total += (unsigned char)(data[idx] * alpha + TERM_BG.r * (1.0f - alpha));
+                g_total += (unsigned char)(data[idx+1] * alpha + TERM_BG.g * (1.0f - alpha));
+                b_total += (unsigned char)(data[idx+2] * alpha + TERM_BG.b * (1.0f - alpha));
+            } else {
+                r_total += data[idx];
+                g_total += data[idx+1];
+                b_total += data[idx+2];
+            }
+            count++;
+        }
     }
-    return {r, g, b};
+    return {(unsigned char)(r_total / count), (unsigned char)(g_total / count), (unsigned char)(b_total / count)};
 }
 
 std::vector<std::string> render_image(
     const std::string& path,
     int width_cols,
     const std::string& style = "color",
-    int block_size = 1
+    int block_size = 1,
+    int blur_radius = 0
 ) {
     std::vector<std::string> out_lines;
     int orig_w, orig_h, channels;
@@ -789,7 +816,7 @@ std::vector<std::string> render_image(
             int effective_y = (y / block_size) * block_size;
             float rx = ((float)effective_x / (float)width_cols) * orig_w;
             float ry = ((float)effective_y / (float)target_h) * orig_h;
-            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
+            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry, blur_radius);
         }
     }
     stbi_image_free(data);
@@ -1096,13 +1123,52 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string reminder = cfg.get_string("reminder_text", "");
     if (!reminder.empty()) {
         text_block.push_back("");
-        std::string bg_color = AC;
-        size_t pos = bg_color.find("38;2;");
-        if (pos != std::string::npos) {
-            bg_color.replace(pos, 5, "48;2;");
+        int max_width = 46;
+        std::vector<std::string> lines;
+        std::string current_line = "";
+        std::istringstream words(reminder);
+        std::string word;
+        while (words >> word) {
+            if (current_line.length() + word.length() + 1 > (size_t)max_width) {
+                if (current_line.empty()) {
+                    lines.push_back(word);
+                } else {
+                    lines.push_back(current_line);
+                    current_line = word;
+                }
+            } else {
+                if (!current_line.empty()) current_line += " ";
+                current_line += word;
+            }
         }
-        std::string fg_color = "\033[1;37m"; 
-        text_block.push_back(bg_color + fg_color + "  " + reminder + "  " + RESET);
+        if (!current_line.empty()) lines.push_back(current_line);
+
+        int longest = 0;
+        for (const auto& l : lines) {
+            if ((int)l.length() > longest) longest = l.length();
+        }
+        
+        std::string h = "\xe2\x94\x80";
+        std::string v = "\xe2\x94\x82";
+        std::string tl = "\xe2\x95\xad";
+        std::string tr = "\xe2\x95\xae";
+        std::string bl = "\xe2\x95\xb0";
+        std::string br = "\xe2\x95\xaf";
+        
+        std::string top = tl;
+        for(int i=0; i<longest+2; i++) top += h;
+        top += tr;
+        
+        std::string bot = bl;
+        for(int i=0; i<longest+2; i++) bot += h;
+        bot += br;
+        
+        text_block.push_back(AC + top + RESET);
+        for (const auto& l : lines) {
+            std::string pad(longest - l.length(), ' ');
+            text_block.push_back(AC + v + " " + RESET + VAL_COLOR + l + pad + RESET + AC + " " + v + RESET);
+        }
+        text_block.push_back(AC + bot + RESET);
     }
 
     std::vector<std::string> logo_block;
@@ -1110,9 +1176,14 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int img_width = cfg.get_int("image_width", 28);
     std::string img_style = cfg.get_string("image_style", "color");
     int pixel_size = cfg.get_int("pixel_size", 1);
+    int blur_radius = cfg.get_int("image_blur", 0);
+    float scale = std::stod(cfg.get_string("image_scale", "1.0"));
+    int pad_x = cfg.get_int("image_pad_x", 0);
+    int pad_y = cfg.get_int("image_pad_y", 0);
 
     if (!img_path.empty()) {
-        logo_block = ImgRender::render_image(img_path, img_width, img_style, pixel_size);
+        int scaled_width = std::max(1, (int)(img_width * scale));
+        logo_block = ImgRender::render_image(img_path, scaled_width, img_style, pixel_size, blur_radius);
     }
 
     if (logo_block.empty()) {
@@ -1152,11 +1223,19 @@ std::vector<std::string> generate_preview(Config& cfg) {
 
     std::vector<std::string> new_logo(pad_logo, std::string(actual_logo_width, ' '));
     new_logo.insert(new_logo.end(), logo_block.begin(), logo_block.end());
+    
+    if (pad_y > 0) {
+        new_logo.insert(new_logo.begin(), pad_y, std::string(actual_logo_width, ' '));
+    } else if (pad_y < 0) {
+        int rem = std::min((int)new_logo.size(), -pad_y);
+        new_logo.erase(new_logo.begin(), new_logo.begin() + rem);
+    }
 
     std::vector<std::string> new_text(pad_text, "");
     new_text.insert(new_text.end(), text_block.begin(), text_block.end());
 
     max_lines = std::max(new_logo.size(), new_text.size());
+    std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
 
     for (size_t i = 0; i < max_lines; ++i) {
         std::string l_line = "";
@@ -1169,6 +1248,27 @@ std::vector<std::string> generate_preview(Config& cfg) {
         } else {
             l_line = std::string(actual_logo_width, ' ');
         }
+        
+        if (pad_x < 0) {
+            int to_remove = -pad_x;
+            int count = 0;
+            std::string clipped = "";
+            bool in_ansi = false;
+            for (char c : l_line) {
+                if (c == '\033') in_ansi = true;
+                if (in_ansi) {
+                    clipped += c;
+                    if (c == 'm') in_ansi = false;
+                    continue;
+                }
+                if (count >= to_remove) clipped += c;
+                else count++;
+            }
+            l_line = clipped;
+        } else {
+            l_line = x_pad_str + l_line;
+        }
+        
         std::string t_line = (i < new_text.size()) ? new_text[i] : "";
         out.push_back(l_line + "   " + t_line);
     }
@@ -1202,8 +1302,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     
     std::vector<MenuItem> app_menu = {
         {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
-        {"Accent Color", "accent_color", {"cyan", "red", "green", "yellow", "blue", "magenta", "white"}},
-        {"Show Palette", "show_palette", {}},
         {"Show Bars", "show_bars", {}}
     };
 
@@ -1245,7 +1343,14 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         };
         std::vector<std::string> img_opts = {
             "1. ASCII Art (Default)",
-            "2. Custom Image"
+            "2. Set Image Path Manually",
+            "3. Choose Image (File Manager)",
+            "4. Live Resize & Align Image",
+            "5. Adjust Image Blur"
+        };
+        std::vector<std::string> rem_opts = {
+            "1. Set New Reminder",
+            "2. Remove Reminder"
         };
 
         if (state == 0) { // Main Menu
@@ -1272,13 +1377,29 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 left_lines.push_back(ss.str());
             }
         }
-        else if (state == 3) { // Image Settings
+        else if (state == 3) { // Side Art
             for (size_t i = 0; i < img_opts.size(); ++i) {
                 std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
-                left_lines.push_back(prefix + img_opts[i] + "\033[0m");
+                if ((i == 3 || i == 4) && cfg.get_string("image_path", "").empty()) {
+                    left_lines.push_back(prefix + "\033[1;30m" + img_opts[i] + " (Requires Custom Image)\033[0m");
+                } else {
+                    left_lines.push_back(prefix + img_opts[i] + "\033[0m");
+                }
             }
         }
-
+        else if (state == 4) { // Live Resize & Align
+            left_lines.push_back("");
+            left_lines.push_back("\033[1;33m=== Live Resize & Align ===\033[0m");
+            left_lines.push_back("[\033[1;32mW/S\033[0m] Scale Up/Down");
+            left_lines.push_back("[\033[1;32mUP/DOWN/LEFT/RIGHT\033[0m] Move Image");
+            left_lines.push_back("[\033[1;32mENTER or ESC\033[0m] Finish");
+        }
+        else if (state == 5) { // Reminder Box
+            for (size_t i = 0; i < rem_opts.size(); ++i) {
+                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                left_lines.push_back(prefix + rem_opts[i] + "\033[0m");
+            }
+        }
         std::vector<std::string> right_lines = generate_preview(cfg);
         right_lines.insert(right_lines.begin(), "\033[1;37m=== LIVE PREVIEW ===\033[0m");
         right_lines.insert(right_lines.begin() + 1, "");
@@ -1304,11 +1425,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             else { state = 0; selected = 0; continue; }
         }
         if (key == 1001) { // UP
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())));
             selected = (selected > 0) ? selected - 1 : s_max - 1;
         }
         if (key == 1002) { // DOWN
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())));
             selected = (selected + 1) % s_max;
         }
         
@@ -1318,15 +1439,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     if (selected == 0) { state = 1; selected = 0; }
                     else if (selected == 1) { state = 3; selected = 0; }
                     else if (selected == 2) { state = 2; selected = 0; }
-                    else if (selected == 3) {
-                        std::cout << "\033[2J\033[H";
-                        std::cout << "\033[1;36mEnter Reminder Text (Leave empty to disable): \033[0m";
-                        std::cout << "\033[?25h";
-                        std::string txt;
-                        std::getline(std::cin, txt);
-                        std::cout << "\033[?25l";
-                        cfg.settings["reminder_text"] = txt;
-                    }
+                    else if (selected == 3) { state = 5; selected = 0; }
                     else if (selected == 4) break; // Save & Exit
                 }
             } 
@@ -1354,8 +1467,8 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     if (selected == 0) {
                         cfg.settings["image_path"] = "";
                     } else if (selected == 1) {
-                        std::cout << "\033[2J\033[H";
-                        std::cout << "\033[1;36mEnter custom image path (or leave empty for default Tux logo): \033[0m";
+                        std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
+                        std::cout << "\033[1;36mEnter custom image path (or empty for default Tux logo): \033[0m";
                         std::cout << "\033[?25h";
                         std::string path;
                         std::getline(std::cin, path);
@@ -1369,15 +1482,80 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 #endif
                             path = home + "/.config/clidecor/tux.png";
                         }
-                        std::cout << "\n\033[1;33mWarning: Very large images may ruin the alignment order if they exceed terminal height.\033[0m\n";
-                        std::cout << "Do you want to proceed with this image? (y/n): ";
-                        std::cout << "\033[?25h";
-                        std::string ans;
-                        std::getline(std::cin, ans);
-                        std::cout << "\033[?25l";
-                        if (ans == "y" || ans == "Y" || ans == "yes" || ans == "Yes") {
-                            cfg.settings["image_path"] = path;
+                        cfg.settings["image_path"] = path;
+                    } else if (selected == 2) {
+                        std::string path;
+#ifdef _WIN32
+                        std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mOpening Windows File Picker...\033[0m\n";
+                        std::string ps = "powershell -c \"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Image Files|*.jpg;*.jpeg;*.png;*.bmp;*.webp'; $f.ShowHelp = $true; if($f.ShowDialog() -eq 'OK'){ $f.FileName }\"";
+                        path = trim(exec(ps.c_str()));
+#else
+                        if (access("/usr/bin/zenity", F_OK) == 0) {
+                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mOpening Zenity File Picker...\033[0m\n";
+                            path = trim(exec("zenity --file-selection --title=\"Select Image for CLI DECOR\" 2>/dev/null"));
+                        } else if (access("/usr/bin/kdialog", F_OK) == 0) {
+                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mOpening KDE File Picker...\033[0m\n";
+                            path = trim(exec("kdialog --getopenfilename . \"Image Files (*.jpg *.jpeg *.png *.bmp *.webp)\" 2>/dev/null"));
+                        } else {
+                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;31mNo GUI picker (zenity/kdialog). Enter path manually: \033[0m";
+                            std::cout << "\033[?25h";
+                            std::getline(std::cin, path);
+                            std::cout << "\033[?25l";
                         }
+#endif
+                        if (!path.empty()) cfg.settings["image_path"] = path;
+                    } else if (selected == 3) {
+                        if (!cfg.get_string("image_path", "").empty()) {
+                            state = 4; selected = 0; continue;
+                        }
+                    } else if (selected == 4) {
+                        if (!cfg.get_string("image_path", "").empty()) {
+                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
+                            std::cout << "\033[1;36mEnter Blur Radius (0 to 10): \033[0m";
+                            std::cout << "\033[?25h";
+                            std::string b;
+                            std::getline(std::cin, b);
+                            std::cout << "\033[?25l";
+                            try {
+                                int br = std::stoi(b);
+                                cfg.settings["image_blur"] = std::to_string(std::clamp(br, 0, 10));
+                            } catch(...) {}
+                        }
+                    }
+                    if (state == 3) { state = 0; selected = 0; }
+                }
+            }
+            else if (state == 4) {
+                if (key == 119 || key == 87) { // W
+                    float s = std::stod(cfg.get_string("image_scale", "1.0"));
+                    cfg.settings["image_scale"] = std::to_string(s + 0.05f);
+                } else if (key == 115 || key == 83) { // S
+                    float s = std::stod(cfg.get_string("image_scale", "1.0"));
+                    if (s > 0.1f) cfg.settings["image_scale"] = std::to_string(s - 0.05f);
+                } else if (key == 1001) { // UP
+                    cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) - 1);
+                } else if (key == 1002) { // DOWN
+                    cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) + 1);
+                } else if (key == 1003) { // LEFT
+                    cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) - 1);
+                } else if (key == 1004) { // RIGHT
+                    cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) + 1);
+                } else if (key == 13 || key == 10 || key == 27 || key == 113) {
+                    state = 3; selected = 0;
+                }
+            }
+            else if (state == 5) { // Reminder Box Submenu
+                if (key == 13 || key == 10) {
+                    if (selected == 0) {
+                        std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
+                        std::cout << "\033[1;36mEnter Reminder Text: \033[0m";
+                        std::cout << "\033[?25h";
+                        std::string txt;
+                        std::getline(std::cin, txt);
+                        std::cout << "\033[?25l";
+                        if (!txt.empty()) cfg.settings["reminder_text"] = txt;
+                    } else if (selected == 1) {
+                        cfg.settings["reminder_text"] = "";
                     }
                     state = 0; selected = 0;
                 }
