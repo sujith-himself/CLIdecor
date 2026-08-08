@@ -1063,7 +1063,7 @@ static std::unordered_map<char, std::vector<std::string>> figlet_font = {
 static std::vector<std::string> generate_figlet(const std::string& text) {
     std::vector<std::string> result(5, "");
     for (char c : text) {
-        char upper_c = std::toupper(c);
+        char upper_c = std::toupper((unsigned char)c);
         if (figlet_font.count(upper_c)) {
             for (int i = 0; i < 5; ++i) {
                 result[i] += figlet_font[upper_c][i] + " ";
@@ -1082,7 +1082,7 @@ static std::vector<std::string> generate_figlet(const std::string& text) {
 }
 std::vector<std::string> get_os_logo(const std::string& os, int& width) {
     std::string os_lower = os;
-    for (char& c : os_lower) c = std::tolower(c);
+    for (char& c : os_lower) c = std::tolower((unsigned char)c);
     
     width = 17;
     if (os_lower.find("windows") != std::string::npos) {
