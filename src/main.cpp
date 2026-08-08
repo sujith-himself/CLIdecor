@@ -969,57 +969,59 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string RESET = "\033[0m";
     std::string VAL_COLOR = "\033[37m";
 
-    std::string user_host = SysInfo::get_user_host();
+    static std::string user_host = SysInfo::get_user_host();
     std::vector<std::pair<std::string, std::string>> info_items;
 
     if (cfg.get_bool("show_os", true)) {
-        std::string os = SysInfo::get_os();
+        static std::string os = SysInfo::get_os();
         if (!os.empty()) info_items.push_back({"OS:", os});
     }
     if (cfg.get_bool("show_host", true)) {
-        std::string host = SysInfo::get_host();
+        static std::string host = SysInfo::get_host();
         if (!host.empty()) info_items.push_back({"Host:", host});
     }
     if (cfg.get_bool("show_kernel", true)) {
-        std::string kernel = SysInfo::get_kernel();
+        static std::string kernel = SysInfo::get_kernel();
         if (!kernel.empty()) info_items.push_back({"Kernel:", kernel});
     }
     if (cfg.get_bool("show_uptime", true)) {
-        std::string uptime = SysInfo::get_uptime();
+        static std::string uptime = SysInfo::get_uptime();
         if (!uptime.empty()) info_items.push_back({"Uptime:", uptime});
     }
     if (cfg.get_bool("show_packages", true)) {
-        std::string pkgs = SysInfo::get_packages();
+        static std::string pkgs = SysInfo::get_packages();
         if (!pkgs.empty()) info_items.push_back({"Packages:", pkgs});
     }
     if (cfg.get_bool("show_shell", true)) {
-        std::string sh = SysInfo::get_shell();
+        static std::string sh = SysInfo::get_shell();
         if (!sh.empty()) info_items.push_back({"Shell:", sh});
     }
     if (cfg.get_bool("show_terminal", true)) {
-        std::string term = SysInfo::get_terminal();
+        static std::string term = SysInfo::get_terminal();
         if (!term.empty()) info_items.push_back({"Terminal:", term});
     }
     if (cfg.get_bool("show_resolution", true)) {
-        std::string res = SysInfo::get_resolution();
+        static std::string res = SysInfo::get_resolution();
         if (!res.empty()) info_items.push_back({"Resolution:", res});
     }
     if (cfg.get_bool("show_cpu", true)) {
-        std::string cpu = SysInfo::get_cpu();
+        static std::string cpu = SysInfo::get_cpu();
+        static int pct = SysInfo::get_cpu_usage();
         if (!cpu.empty()) {
+            std::string cpu_str = cpu;
             if (cfg.get_bool("show_bars", true) && cfg.get_bool("show_cpu_bar", true)) {
-                int pct = SysInfo::get_cpu_usage();
-                cpu += " " + build_bar(pct, AC, VAL_COLOR);
+                cpu_str += " " + build_bar(pct, AC, VAL_COLOR);
             }
-            info_items.push_back({"CPU:", cpu});
+            info_items.push_back({"CPU:", cpu_str});
         }
     }
     if (cfg.get_bool("show_gpu", true)) {
-        std::string gpu = SysInfo::get_gpu();
+        static std::string gpu = SysInfo::get_gpu();
         if (!gpu.empty()) info_items.push_back({"GPU:", gpu});
     }
     if (cfg.get_bool("show_memory", true)) {
-        auto [used_mb, total_mb] = SysInfo::get_memory();
+        static auto mem = SysInfo::get_memory();
+        auto [used_mb, total_mb] = mem;
         if (total_mb > 0) {
             int pct = (int)((used_mb * 100) / total_mb);
             std::string mem_str;
@@ -1037,37 +1039,33 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
     if (cfg.get_bool("show_swap", true)) {
-        std::string swap_str = SysInfo::get_swap();
+        static std::string swap_str = SysInfo::get_swap();
         if (!swap_str.empty()) info_items.push_back({"Swap:", swap_str});
     }
     if (cfg.get_bool("show_disk", true)) {
-        std::string disk = SysInfo::get_disk();
+        static std::string disk = SysInfo::get_disk();
         if (!disk.empty()) info_items.push_back({"Disk:", disk});
     }
     if (cfg.get_bool("show_battery", false)) {
-        std::string batt = SysInfo::get_battery();
+        static std::string batt = SysInfo::get_battery();
         if (!batt.empty()) info_items.push_back({"Battery:", batt});
     }
     if (cfg.get_bool("show_localip", true)) {
-        std::string lip = SysInfo::get_local_ip();
+        static std::string lip = SysInfo::get_local_ip();
         if (!lip.empty()) info_items.push_back({"Local IP:", lip});
     }
     if (cfg.get_bool("show_publicip", false)) {
-        std::string pip = SysInfo::get_public_ip();
+        static std::string pip = SysInfo::get_public_ip();
         if (!pip.empty()) info_items.push_back({"Public IP:", pip});
     }
     if (cfg.get_bool("show_locale", true)) {
-        std::string loc = SysInfo::get_locale();
+        static std::string loc = SysInfo::get_locale();
         if (!loc.empty()) info_items.push_back({"Locale:", loc});
     }
     if (cfg.get_bool("show_weather", false)) {
         std::string loc = cfg.get_string("weather_location", "");
         std::string wtr = SysInfo::get_weather(loc);
         if (!wtr.empty()) info_items.push_back({"Weather:", wtr});
-    }
-    if (cfg.get_bool("show_git", true)) {
-        std::string git = SysInfo::get_git();
-        if (!git.empty()) info_items.push_back({"Git:", git});
     }
 
     std::vector<std::string> text_block;
@@ -1200,8 +1198,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Show Local IP", "show_localip", {}},
         {"Show Public IP", "show_publicip", {}},
         {"Show Locale", "show_locale", {}},
-        {"Show Weather", "show_weather", {}},
-        {"Show Git", "show_git", {}}
+        {"Show Weather", "show_weather", {}}
     };
     
     std::vector<MenuItem> app_menu = {
@@ -1224,7 +1221,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         return len;
     };
 
-    std::cout << "\033[?1049h\033[?25l"; // Enter alternate screen buffer & hide cursor
+    std::cout << "\033[?1049h\033[?25l\033[?1000l\033[?1007l"; // Enter alternate screen buffer, hide cursor, disable mouse scroll
 
     while (true) {
         std::vector<std::string> left_lines;
@@ -1235,7 +1232,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         left_lines.push_back("\033[1;36m ╚██████╗ ███████╗ ██║    ██████╔╝ ███████╗ ╚██████╗ ╚██████╔╝ ██║  ██║\033[0m");
         left_lines.push_back("\033[1;36m  ╚═════╝ ╚══════╝ ╚═╝    ╚═════╝  ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝\033[0m");
         left_lines.push_back("");
-        left_lines.push_back("Press [\033[1;33mq\033[0m] to quit/back, [\033[1;32mENTER\033[0m] to confirm/edit.");
+        left_lines.push_back("Press [\033[1;33mq\033[0m] to quit/back, [\033[1;33mUP/DOWN\033[0m] to navigate, [\033[1;32mENTER\033[0m] to confirm/edit.");
         left_lines.push_back("");
         left_lines.push_back("\033[1;37m=== SETTINGS ===\033[0m");
         left_lines.push_back("");
@@ -1284,8 +1281,10 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         }
 
         std::vector<std::string> right_lines = generate_preview(cfg);
+        right_lines.insert(right_lines.begin(), "\033[1;37m=== LIVE PREVIEW ===\033[0m");
+        right_lines.insert(right_lines.begin() + 1, "");
         
-        std::cout << "\033[2J\033[H";
+        std::cout << "\033[2J"; // Clear screen once per frame
         size_t mlines = std::max(left_lines.size(), right_lines.size());
         size_t left_width = 75;
 
@@ -1296,8 +1295,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 l += std::string(left_width - vlen, ' ');
             }
             std::string r = (i < right_lines.size()) ? right_lines[i] : "";
-            std::cout << l << " | " << r << "\n";
+            std::cout << "\033[" << (i + 1) << ";1H\033[K" << l << " | " << r;
         }
+        std::cout << std::flush;
         
         int key = get_keypress();
         if (key == 113) { // q
