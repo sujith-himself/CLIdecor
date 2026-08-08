@@ -988,7 +988,7 @@ int get_keypress() {
         int c3 = -1;
         if (c2 != EOF) c3 = getchar();
         tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-        if (c2 == 91) {
+        if (c2 == 91 || c2 == 79) {
             if (c3 == 65) return 1001; // UP
             if (c3 == 66) return 1002; // DOWN
             if (c3 == 68) return 1003; // LEFT
@@ -1342,12 +1342,15 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             "4. Reminder Box",
             "5. Save & Exit"
         };
-        std::vector<std::string> img_opts = {
+        std::vector<std::string> side_art_opts = {
             "1. ASCII Art (Default)",
-            "2. Set Image Path Manually",
-            "3. Choose Image (File Manager)",
-            "4. Live Resize & Align Image",
-            "5. Adjust Image Blur"
+            "2. Custom Image Art"
+        };
+        std::vector<std::string> custom_img_opts = {
+            "1. Set Image Path Manually",
+            "2. Choose Image (File Manager)",
+            "3. Live Resize & Align Image",
+            "4. Adjust Image Blur"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1379,12 +1382,18 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             }
         }
         else if (state == 3) { // Side Art
-            for (size_t i = 0; i < img_opts.size(); ++i) {
+            for (size_t i = 0; i < side_art_opts.size(); ++i) {
                 std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
-                if ((i == 3 || i == 4) && cfg.get_string("image_path", "").empty()) {
-                    left_lines.push_back(prefix + "\033[1;30m" + img_opts[i] + " (Requires Custom Image)\033[0m");
+                left_lines.push_back(prefix + side_art_opts[i] + "\033[0m");
+            }
+        }
+        else if (state == 6) { // Custom Image Art
+            for (size_t i = 0; i < custom_img_opts.size(); ++i) {
+                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                if ((i == 2 || i == 3) && cfg.get_string("image_path", "").empty()) {
+                    left_lines.push_back(prefix + "\033[1;30m" + custom_img_opts[i] + " (Requires Custom Image)\033[0m");
                 } else {
-                    left_lines.push_back(prefix + img_opts[i] + "\033[0m");
+                    left_lines.push_back(prefix + custom_img_opts[i] + "\033[0m");
                 }
             }
         }
@@ -1395,6 +1404,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             left_lines.push_back("[\033[1;32mLEFT/RIGHT\033[0m] Stretch Width");
             left_lines.push_back("[\033[1;32mW/A/S/D\033[0m] Move Image");
             left_lines.push_back("[\033[1;32mENTER or ESC\033[0m] Finish");
+            left_lines.push_back("");
+            left_lines.push_back("\033[1;30mX Offset: " + std::to_string(cfg.get_int("image_pad_x", 0)) + " | Y Offset: " + std::to_string(cfg.get_int("image_pad_y", 0)) + "\033[0m");
+            left_lines.push_back("\033[1;30mX Scale: " + cfg.get_string("image_scale_x", "1.0") + " | Y Scale: " + cfg.get_string("image_scale_y", "1.0") + "\033[0m");
         }
         else if (state == 5) { // Reminder Box
             for (size_t i = 0; i < rem_opts.size(); ++i) {
@@ -1427,11 +1439,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             else { state = 0; selected = 0; continue; }
         }
         if (key == 1001) { // UP
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()))));
             selected = (selected > 0) ? selected - 1 : s_max - 1;
         }
         if (key == 1002) { // DOWN
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()))));
             selected = (selected + 1) % s_max;
         }
         
@@ -1473,24 +1485,23 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 if (key == 13 || key == 10) {
                     if (selected == 0) {
                         cfg.settings["image_path"] = "";
+                        state = 0; selected = 0;
                     } else if (selected == 1) {
+                        state = 6; selected = 0;
+                    }
+                }
+            }
+            else if (state == 6) { // Custom Image Art
+                if (key == 13 || key == 10) {
+                    if (selected == 0) {
                         std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
-                        std::cout << "\033[1;36mEnter custom image path (or empty for default Tux logo): \033[0m";
+                        std::cout << "\033[1;36mEnter custom image path: \033[0m";
                         std::cout << "\033[?25h";
                         std::string path;
                         std::getline(std::cin, path);
                         std::cout << "\033[?25l";
-                        if (path.empty()) {
-                            std::string home = "";
-#ifdef _WIN32
-                            if (getenv("USERPROFILE")) home = getenv("USERPROFILE");
-#else
-                            if (getenv("HOME")) home = getenv("HOME");
-#endif
-                            path = home + "/.config/clidecor/tux.png";
-                        }
-                        cfg.settings["image_path"] = path;
-                    } else if (selected == 2) {
+                        if (!path.empty()) cfg.settings["image_path"] = path;
+                    } else if (selected == 1) {
                         std::string path;
 #ifdef _WIN32
                         std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mOpening Windows File Picker...\033[0m\n";
@@ -1511,11 +1522,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         }
 #endif
                         if (!path.empty()) cfg.settings["image_path"] = path;
-                    } else if (selected == 3) {
+                    } else if (selected == 2) {
                         if (!cfg.get_string("image_path", "").empty()) {
                             state = 4; selected = 0; continue;
                         }
-                    } else if (selected == 4) {
+                    } else if (selected == 3) {
                         if (!cfg.get_string("image_path", "").empty()) {
                             std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
                             std::cout << "\033[1;36mEnter Blur Radius (0 to 10): \033[0m";
@@ -1529,7 +1540,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                             } catch(...) {}
                         }
                     }
-                    if (state == 3) { state = 0; selected = 0; }
+                    if (state == 6) { state = 3; selected = 1; }
                 }
             }
             else if (state == 4) {
@@ -1545,15 +1556,15 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 } else if (key == 100 || key == 68) { // D
                     cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) + 1);
                 } else if (key == 1001) { // UP
-                    cfg.settings["image_scale_y"] = std::to_string(sy + 0.05f);
+                    cfg.settings["image_scale_y"] = std::to_string(sy + 0.10f);
                 } else if (key == 1002) { // DOWN
-                    if (sy > 0.1f) cfg.settings["image_scale_y"] = std::to_string(sy - 0.05f);
+                    if (sy > 0.1f) cfg.settings["image_scale_y"] = std::to_string(sy - 0.10f);
                 } else if (key == 1003) { // LEFT
-                    if (sx > 0.1f) cfg.settings["image_scale_x"] = std::to_string(sx - 0.05f);
+                    if (sx > 0.1f) cfg.settings["image_scale_x"] = std::to_string(sx - 0.10f);
                 } else if (key == 1004) { // RIGHT
-                    cfg.settings["image_scale_x"] = std::to_string(sx + 0.05f);
+                    cfg.settings["image_scale_x"] = std::to_string(sx + 0.10f);
                 } else if (key == 13 || key == 10 || key == 27 || key == 113) {
-                    state = 3; selected = 0;
+                    state = 6; selected = 2; // Return to Custom Image Art
                 }
             }
             else if (state == 5) { // Reminder Box Submenu
