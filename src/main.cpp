@@ -1777,6 +1777,51 @@ int main(int argc, char* argv[]) {
             }
             #endif
             return 0;
+        } else if (arg == "export") {
+            std::string config_path = Config::get_default_config_path();
+            std::ifstream file(config_path);
+            std::ostringstream ss;
+            ss << file.rdbuf();
+            std::string raw = ss.str();
+            
+            // basic base64 encode
+            std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            std::string out;
+            int val = 0, valb = -6;
+            for (char c : raw) {
+                val = (val << 8) + (unsigned char)c;
+                valb += 8;
+                while (valb >= 0) {
+                    out.push_back(b64[(val >> valb) & 0x3F]);
+                    valb -= 6;
+                }
+            }
+            if (valb > -6) out.push_back(b64[((val << 8) >> (valb + 8)) & 0x3F]);
+            while (out.size() % 4) out.push_back('=');
+            
+            std::cout << "\033[1;36mShareable Config String:\033[0m\n" << out << "\n";
+            return 0;
+        } else if (arg == "import" && argc > 2) {
+            std::string in = argv[2];
+            std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            std::string raw;
+            std::vector<int> T(256, -1);
+            for (int i=0; i<64; i++) T[b64[i]] = i;
+            int val=0, valb=-8;
+            for (char c : in) {
+                if (T[c] == -1) break;
+                val = (val << 6) + T[c];
+                valb += 6;
+                if (valb >= 0) {
+                    raw.push_back(char((val >> valb) & 0xFF));
+                    valb -= 8;
+                }
+            }
+            std::string config_path = Config::get_default_config_path();
+            std::ofstream file(config_path);
+            file << raw;
+            std::cout << "\033[1;32mConfig Imported Successfully!\033[0m\n";
+            return 0;
         } else if (arg == "-live") {
             std::string config_path = Config::get_default_config_path();
             Config cfg = Config::load_from_file(config_path);
