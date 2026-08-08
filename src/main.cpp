@@ -928,22 +928,47 @@ static std::string build_bar(int pct, const std::string& accent_code, const std:
     return bar;
 }
 
-static std::string get_accent_code(const std::string& theme, const std::string& accent_color) {
-    std::string color = accent_color;
-    if (theme == "hacker") color = "green";
-    else if (theme == "dracula") color = "magenta";
-    else if (theme == "nord") color = "blue";
-    else if (theme == "fire") color = "red";
-    else if (theme == "gold") color = "yellow";
+struct ThemeColors {
+    std::string start_hex;
+    std::string end_hex;
+};
 
-    if (color == "red") return "\033[31m";
-    if (color == "green") return "\033[32m";
-    if (color == "yellow") return "\033[33m";
-    if (color == "blue") return "\033[34m";
-    if (color == "magenta") return "\033[35m";
-    if (color == "cyan") return "\033[36m";
-    if (color == "white") return "\033[37m";
+static ThemeColors get_theme_colors(const std::string& theme) {
+    if (theme == "hacker") return {"#00FF00", "#005500"};
+    if (theme == "dracula") return {"#FF79C6", "#BD93F9"};
+    if (theme == "nord") return {"#88C0D0", "#5E81AC"};
+    if (theme == "fire") return {"#FF5555", "#FFB86C"};
+    if (theme == "gold") return {"#F1FA8C", "#FFB86C"};
+    return {"#00FFFF", "#0055FF"}; // default cyan to blue gradient
+}
+
+static std::string hex_to_ansi(const std::string& hexStr) {
+    if (hexStr.length() == 7 && hexStr[0] == '#') {
+        int r = std::stoi(hexStr.substr(1, 2), nullptr, 16);
+        int g = std::stoi(hexStr.substr(3, 2), nullptr, 16);
+        int b = std::stoi(hexStr.substr(5, 2), nullptr, 16);
+        return "\033[38;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(b) + "m";
+    }
     return "\033[36m";
+}
+
+static std::string get_gradient_color(const ThemeColors& colors, int total_steps, int current_step) {
+    if (colors.start_hex.length() != 7 || colors.end_hex.length() != 7) return hex_to_ansi(colors.start_hex);
+    
+    int r1 = std::stoi(colors.start_hex.substr(1, 2), nullptr, 16);
+    int g1 = std::stoi(colors.start_hex.substr(3, 2), nullptr, 16);
+    int b1 = std::stoi(colors.start_hex.substr(5, 2), nullptr, 16);
+    
+    int r2 = std::stoi(colors.end_hex.substr(1, 2), nullptr, 16);
+    int g2 = std::stoi(colors.end_hex.substr(3, 2), nullptr, 16);
+    int b2 = std::stoi(colors.end_hex.substr(5, 2), nullptr, 16);
+    
+    float t = (total_steps > 1) ? (float)current_step / (total_steps - 1) : 0.0f;
+    int r = r1 + t * (r2 - r1);
+    int g = g1 + t * (g2 - g1);
+    int b = b1 + t * (b2 - b1);
+    
+    return "\033[38;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(b) + "m";
 }
 
 std::vector<std::string> get_os_logo(const std::string& os, int& width) {
@@ -1055,11 +1080,12 @@ struct MenuItem {
 std::vector<std::string> generate_preview(Config& cfg) {
     std::vector<std::string> out;
     std::string theme = cfg.get_string("theme", "default");
-    std::string accent_color = cfg.get_string("accent_color", "cyan");
-    std::string AC = get_accent_code(theme, accent_color);
+    ThemeColors theme_colors = get_theme_colors(theme);
+    std::string AC = get_gradient_color(theme_colors, 1, 0); // Base color
+    
     std::string BOLD = "\033[1m";
     std::string RESET = "\033[0m";
-    std::string VAL_COLOR = "\033[37m";
+    std::string VAL_COLOR = "\033[38;2;220;220;220m"; // Soft white for values
 
     static std::string user_host = SysInfo::get_user_host();
     std::vector<std::pair<std::string, std::string>> info_items;
@@ -1077,7 +1103,8 @@ std::vector<std::string> generate_preview(Config& cfg) {
             if (!mod.cached_value.empty()) {
                 std::string val_str = mod.cached_value;
                 if (mod.has_bar && cfg.get_bool("show_bars", true) && cfg.get_bool(mod.config_key + "_bar", true)) {
-                    val_str += " " + build_bar(mod.cached_bar, AC, VAL_COLOR);
+                    std::string bar_color = get_gradient_color(theme_colors, 100, mod.cached_bar);
+                    val_str += " " + build_bar(mod.cached_bar, bar_color, "\033[38;2;80;80;80m"); // Dark gray for empty
                 }
                 info_items.push_back({mod.label, val_str});
             }
@@ -1085,12 +1112,15 @@ std::vector<std::string> generate_preview(Config& cfg) {
     }
 
     std::vector<std::string> text_block;
-    text_block.push_back(AC + BOLD + user_host + RESET);
-    text_block.push_back(AC + std::string(user_host.length(), '-') + RESET);
+    
+    std::string title_AC = get_gradient_color(theme_colors, 1, 0);
+    text_block.push_back(title_AC + BOLD + user_host + RESET);
+    text_block.push_back(title_AC + std::string(user_host.length(), '-') + RESET);
 
-    for (const auto& item : info_items) {
+    for (size_t i = 0; i < info_items.size(); ++i) {
         std::ostringstream ss;
-        ss << AC << BOLD << std::left << std::setw(12) << item.first << RESET << " " << VAL_COLOR << item.second << RESET;
+        std::string current_AC = get_gradient_color(theme_colors, info_items.size(), i);
+        ss << current_AC << BOLD << std::left << std::setw(12) << info_items[i].first << RESET << " " << VAL_COLOR << info_items[i].second << RESET;
         text_block.push_back(ss.str());
     }
 
@@ -1168,8 +1198,9 @@ std::vector<std::string> generate_preview(Config& cfg) {
             if (item.first == "OS:") os = item.second;
         }
         std::vector<std::string> default_logo = get_os_logo(os, img_width);
-        for (const auto& l : default_logo) {
-            logo_block.push_back(AC + l + RESET);
+        for (size_t i = 0; i < default_logo.size(); ++i) {
+            std::string logo_AC = get_gradient_color(theme_colors, default_logo.size(), i);
+            logo_block.push_back(logo_AC + default_logo[i] + RESET);
         }
     }
 
