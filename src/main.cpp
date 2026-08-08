@@ -1004,7 +1004,55 @@ static std::string get_gradient_color(const ThemeColors& colors, int total_steps
     
     return "\033[38;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(b) + "m";
 }
+static std::unordered_map<char, std::vector<std::string>> figlet_font = {
+    {'A', {R"( . )", R"(/ \)", R"(---)", R"(| |)", R"(| |)"}},
+    {'B', {R"(|-.)", R"(|-|)", R"(|-|)", R"(|-|)", R"(|-')"}},
+    {'C', {R"( --)", R"(/  )", R"(|  )", R"(\  )", R"( --)"}},
+    {'D', {R"(|\ )", R"(| \)", R"(| |)", R"(| /)", R"(|/ )"}},
+    {'E', {R"(---)", R"(|  )", R"(|- )", R"(|  )", R"(---)"}},
+    {'F', {R"(---)", R"(|  )", R"(|- )", R"(|  )", R"(|  )"}},
+    {'G', {R"( --)", R"(/  )", R"(| -)", R"(\ |)", R"( --)"}},
+    {'H', {R"(| |)", R"(| |)", R"(---)", R"(| |)", R"(| |)"}},
+    {'I', {R"(---)", R"( | )", R"( | )", R"( | )", R"(---)"}},
+    {'J', {R"( --)", R"(  |)", R"(  |)", R"(\ |)", R"( --)"}},
+    {'K', {R"(| /)", R"(|/ )", R"(|\ )", R"(| \)", R"(|  )"}},
+    {'L', {R"(|  )", R"(|  )", R"(|  )", R"(|  )", R"(---)"}},
+    {'M', {R"(| |)", R"(|\|)", R"(| |)", R"(| |)", R"(| |)"}},
+    {'N', {R"(| |)", R"(|\|)", R"(| |)", R"(| |)", R"(| |)"}},
+    {'O', {R"( - )", R"(| |)", R"(| |)", R"(| |)", R"( - )"}},
+    {'P', {R"(|-.)", R"(| |)", R"(|-')", R"(|  )", R"(|  )"}},
+    {'Q', {R"( - )", R"(| |)", R"(| |)", R"(|\ )", R"( -\)"}},
+    {'R', {R"(|-.)", R"(| |)", R"(|-')", R"(|\ )", R"(| \)"}},
+    {'S', {R"( --)", R"(\  )", R"( - )", R"(  /)", R"(-- )"}},
+    {'T', {R"(---)", R"( | )", R"( | )", R"( | )", R"( | )"}},
+    {'U', {R"(| |)", R"(| |)", R"(| |)", R"(| |)", R"( - )"}},
+    {'V', {R"(| |)", R"(| |)", R"(\ /)", R"(\ /)", R"( v )"}},
+    {'W', {R"(| |)", R"(| |)", R"(| |)", R"(|/|)", R"(| |)"}},
+    {'X', {R"(\ /)", R"( x )", R"(/ \)", R"(\ /)", R"( x )"}},
+    {'Y', {R"(\ /)", R"( v )", R"( | )", R"( | )", R"( | )"}},
+    {'Z', {R"(---)", R"(  /)", R"( / )", R"(/  )", R"(---)"}}
+};
 
+static std::vector<std::string> generate_figlet(const std::string& text) {
+    std::vector<std::string> result(5, "");
+    for (char c : text) {
+        char upper_c = std::toupper(c);
+        if (figlet_font.count(upper_c)) {
+            for (int i = 0; i < 5; ++i) {
+                result[i] += figlet_font[upper_c][i] + " ";
+            }
+        } else if (c == ' ') {
+            for (int i = 0; i < 5; ++i) {
+                result[i] += "   ";
+            }
+        } else {
+            for (int i = 0; i < 5; ++i) {
+                result[i] += " ? ";
+            }
+        }
+    }
+    return result;
+}
 std::vector<std::string> get_os_logo(const std::string& os, int& width) {
     std::string os_lower = os;
     for (char& c : os_lower) c = std::tolower(c);
@@ -1227,14 +1275,23 @@ std::vector<std::string> generate_preview(Config& cfg) {
     }
 
     if (logo_block.empty()) {
-        std::string os = "";
-        for (const auto& item : info_items) {
-            if (item.first == "OS:") os = item.second;
-        }
-        std::vector<std::string> default_logo = get_os_logo(os, img_width);
-        for (size_t i = 0; i < default_logo.size(); ++i) {
-            std::string logo_AC = get_gradient_color(theme_colors, default_logo.size(), i);
-            logo_block.push_back(logo_AC + default_logo[i] + RESET);
+        std::string header_text = cfg.get_string("header_text", "");
+        if (cfg.get_string("header_type", "os") == "figlet" && !header_text.empty()) {
+            std::vector<std::string> fig_logo = generate_figlet(header_text);
+            for (size_t i = 0; i < fig_logo.size(); ++i) {
+                std::string logo_AC = get_gradient_color(theme_colors, fig_logo.size(), i);
+                logo_block.push_back(logo_AC + fig_logo[i] + RESET);
+            }
+        } else {
+            std::string os = "";
+            for (const auto& item : info_items) {
+                if (item.first == "OS:") os = item.second;
+            }
+            std::vector<std::string> default_logo = get_os_logo(os, img_width);
+            for (size_t i = 0; i < default_logo.size(); ++i) {
+                std::string logo_AC = get_gradient_color(theme_colors, default_logo.size(), i);
+                logo_block.push_back(logo_AC + default_logo[i] + RESET);
+            }
         }
     }
 
@@ -1355,6 +1412,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     std::vector<MenuItem> app_menu = {
         {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold", "chameleon"}},
         {"Layout", "layout", {"image_left", "image_right", "image_top", "image_bottom"}},
+        {"Header Type", "header_type", {"os", "figlet"}},
         {"Show Bars", "show_bars", {}}
     };
 
@@ -1524,6 +1582,14 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         if (m.options[i] == val) idx = i;
                     }
                     if (key == 13 || key == 10) {
+                        cfg.settings[m.key] = m.options[idx];
+                        if (m.key == "header_type" && m.options[idx] == "figlet") {
+                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mEnter Figlet Text: \033[0m\033[?25h";
+                            std::string txt;
+                            std::getline(std::cin, txt);
+                            std::cout << "\033[?25l";
+                            if (!txt.empty()) cfg.settings["header_text"] = txt;
+                        }
                         state = 0; selected = 0; continue;
                     } else if (key == 1003) {
                         idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
