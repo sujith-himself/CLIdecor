@@ -37,6 +37,8 @@
 #include <tuple>
 #include <random>
 #include <cmath>
+#include <thread>
+#include <chrono>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -1628,6 +1630,50 @@ int main(int argc, char* argv[]) {
             std::string config_path = Config::get_default_config_path();
             Config cfg = Config::load_from_file(config_path);
             run_settings_menu(cfg, config_path);
+            return 0;
+        } else if (arg == "--desktop") {
+            std::string config_path = Config::get_default_config_path();
+            Config cfg = Config::load_from_file(config_path);
+            
+            #ifdef _WIN32
+            HWND hwnd = GetConsoleWindow();
+            LONG style = GetWindowLong(hwnd, GWL_STYLE);
+            style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU | WS_VSCROLL | WS_HSCROLL);
+            SetWindowLong(hwnd, GWL_STYLE, style);
+            
+            LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW);
+            SetLayeredWindowAttributes(hwnd, RGB(0,0,0), 0, LWA_COLORKEY);
+            
+            HWND progman = FindWindow("Progman", NULL);
+            SendMessageTimeout(progman, 0x052C, 0, 0, SMTO_NORMAL, 1000, nullptr);
+            
+            HWND workerw = NULL;
+            EnumWindows([](HWND tophandle, LPARAM topparamhandle) -> BOOL {
+                HWND p = FindWindowEx(tophandle, NULL, "SHELLDLL_DefView", NULL);
+                if (p != NULL) {
+                    *(HWND*)topparamhandle = FindWindowEx(NULL, tophandle, "WorkerW", NULL);
+                }
+                return TRUE;
+            }, (LPARAM)&workerw);
+            
+            if (workerw != NULL) {
+                SetParent(hwnd, workerw);
+            } else {
+                SetParent(hwnd, progman);
+            }
+            SetWindowPos(hwnd, HWND_BOTTOM, 100, 100, 800, 800, SWP_SHOWWINDOW);
+            #endif
+
+            std::cout << "\033[?25l"; // Hide cursor
+            while (true) {
+                std::cout << "\033[2J\033[H"; // Clear screen and move to home
+                std::vector<std::string> output = generate_preview(cfg);
+                for (const auto& line : output) {
+                    std::cout << line << "\n";
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(2)); // Sleep to prevent massive CPU usage
+            }
             return 0;
         }
     }
