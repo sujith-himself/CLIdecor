@@ -743,49 +743,21 @@ static bool is_bg(const RGB& p, int threshold = 20) {
            std::abs((int)p.b - (int)TERM_BG.b) <= threshold;
 }
 
-static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels, float x_ratio, float y_ratio, int blur_radius) {
-    if (blur_radius <= 0) {
-        int px = std::min((int)(x_ratio), orig_w - 1);
-        int py = std::min((int)(y_ratio), orig_h - 1);
-        int idx = (py * orig_w + px) * channels;
-        unsigned char r = data[idx];
-        unsigned char g = data[idx + 1];
-        unsigned char b = data[idx + 2];
-        unsigned char a = (channels == 4) ? data[idx + 3] : 255;
-        if (a < 255) {
-            float alpha = a / 255.0f;
-            r = (unsigned char)(r * alpha + TERM_BG.r * (1.0f - alpha));
-            g = (unsigned char)(g * alpha + TERM_BG.g * (1.0f - alpha));
-            b = (unsigned char)(b * alpha + TERM_BG.b * (1.0f - alpha));
-        }
-        return {r, g, b};
-    }
-    
-    // Box blur
+static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels, float x_ratio, float y_ratio) {
     int px = std::min((int)(x_ratio), orig_w - 1);
     int py = std::min((int)(y_ratio), orig_h - 1);
-    long long r_total = 0, g_total = 0, b_total = 0;
-    int count = 0;
-    for (int dy = -blur_radius; dy <= blur_radius; ++dy) {
-        for (int dx = -blur_radius; dx <= blur_radius; ++dx) {
-            int nx = std::clamp(px + dx, 0, orig_w - 1);
-            int ny = std::clamp(py + dy, 0, orig_h - 1);
-            int idx = (ny * orig_w + nx) * channels;
-            unsigned char a = (channels == 4) ? data[idx + 3] : 255;
-            if (a < 255) {
-                float alpha = a / 255.0f;
-                r_total += (unsigned char)(data[idx] * alpha + TERM_BG.r * (1.0f - alpha));
-                g_total += (unsigned char)(data[idx+1] * alpha + TERM_BG.g * (1.0f - alpha));
-                b_total += (unsigned char)(data[idx+2] * alpha + TERM_BG.b * (1.0f - alpha));
-            } else {
-                r_total += data[idx];
-                g_total += data[idx+1];
-                b_total += data[idx+2];
-            }
-            count++;
-        }
+    int idx = (py * orig_w + px) * channels;
+    unsigned char r = data[idx];
+    unsigned char g = data[idx + 1];
+    unsigned char b = data[idx + 2];
+    unsigned char a = (channels == 4) ? data[idx + 3] : 255;
+    if (a < 255) {
+        float alpha = a / 255.0f;
+        r = (unsigned char)(r * alpha + TERM_BG.r * (1.0f - alpha));
+        g = (unsigned char)(g * alpha + TERM_BG.g * (1.0f - alpha));
+        b = (unsigned char)(b * alpha + TERM_BG.b * (1.0f - alpha));
     }
-    return {(unsigned char)(r_total / count), (unsigned char)(g_total / count), (unsigned char)(b_total / count)};
+    return {r, g, b};
 }
 
 std::vector<std::string> render_image(
@@ -821,10 +793,32 @@ std::vector<std::string> render_image(
             int effective_y = (y / block_size) * block_size;
             float rx = ((float)effective_x / (float)width_cols) * orig_w;
             float ry = ((float)effective_y / (float)target_h) * orig_h;
-            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry, blur_radius);
+            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
         }
     }
     stbi_image_free(data);
+
+    if (blur_radius > 0) {
+        std::vector<std::vector<RGB>> blurred = grid;
+        for (int y = 0; y < target_h; ++y) {
+            for (int x = 0; x < width_cols; ++x) {
+                long long r_tot = 0, g_tot = 0, b_tot = 0;
+                int count = 0;
+                for (int dy = -blur_radius; dy <= blur_radius; ++dy) {
+                    for (int dx = -blur_radius; dx <= blur_radius; ++dx) {
+                        int ny = std::clamp(y + dy, 0, target_h - 1);
+                        int nx = std::clamp(x + dx, 0, width_cols - 1);
+                        r_tot += grid[ny][nx].r;
+                        g_tot += grid[ny][nx].g;
+                        b_tot += grid[ny][nx].b;
+                        count++;
+                    }
+                }
+                blurred[y][x] = {(unsigned char)(r_tot / count), (unsigned char)(g_tot / count), (unsigned char)(b_tot / count)};
+            }
+        }
+        grid = blurred;
+    }
 
     if (style == "ascii") {
         for (int y = 0; y < target_h; ++y) {
