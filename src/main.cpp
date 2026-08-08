@@ -1123,7 +1123,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string reminder = cfg.get_string("reminder_text", "");
     if (!reminder.empty()) {
         text_block.push_back("");
-        int max_width = 36;
+        int max_width = 46;
         std::vector<std::string> lines;
         std::string current_line = "";
         std::istringstream words(reminder);
@@ -1147,28 +1147,18 @@ std::vector<std::string> generate_preview(Config& cfg) {
         for (const auto& l : lines) {
             if ((int)l.length() > longest) longest = l.length();
         }
-        
-        std::string h = "\xe2\x94\x80";
-        std::string v = "\xe2\x94\x82";
-        std::string tl = "\xe2\x95\xad";
-        std::string tr = "\xe2\x95\xae";
-        std::string bl = "\xe2\x95\xb0";
-        std::string br = "\xe2\x95\xaf";
-        
-        std::string top = tl;
-        for(int i=0; i<longest+2; i++) top += h;
-        top += tr;
-        
-        std::string bot = bl;
-        for(int i=0; i<longest+2; i++) bot += h;
-        bot += br;
-        
-        text_block.push_back(AC + top + RESET);
+
+        std::string bg_color = AC;
+        size_t pos = bg_color.find("38;2;");
+        if (pos != std::string::npos) {
+            bg_color.replace(pos, 5, "48;2;");
+        }
+        std::string fg_color = "\033[1;37m"; 
+
         for (const auto& l : lines) {
             std::string pad(longest - l.length(), ' ');
-            text_block.push_back(AC + v + " " + RESET + VAL_COLOR + l + pad + RESET + AC + " " + v + RESET);
+            text_block.push_back(bg_color + fg_color + " " + l + pad + " " + RESET);
         }
-        text_block.push_back(AC + bot + RESET);
     }
 
     std::vector<std::string> logo_block;
