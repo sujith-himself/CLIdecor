@@ -32,7 +32,6 @@ BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 if [ -f "$INSTALL_DIR/clidecor" ]; then
     ln -sf "$INSTALL_DIR/clidecor" "$BIN_DIR/clidecor"
-    echo "Made 'clidecor' command globally accessible via $BIN_DIR"
 fi
 
 RC_FILE=""
@@ -45,21 +44,28 @@ elif [ -f "$HOME/.bash_profile" ]; then
 fi
 
 LINE="\$HOME/.config/clidecor/clidecor"
+ALIAS_LINE="alias clidecor=\"\$HOME/.config/clidecor/clidecor\""
 
 if [ -n "$RC_FILE" ]; then
+    # Add auto-start on terminal launch
     if ! grep -qF "$LINE" "$RC_FILE" 2>/dev/null; then
         echo "" >> "$RC_FILE"
         echo "# CLI DECOR - runs on new terminal" >> "$RC_FILE"
         echo "$LINE" >> "$RC_FILE"
-        echo "Added CLI DECOR to $RC_FILE"
-    else
-        echo "CLI DECOR already present in $RC_FILE"
+        echo "Added CLI DECOR auto-start to $RC_FILE"
+    fi
+    
+    # Add alias for global command access if PATH doesn't work out of the box
+    if ! grep -qF "alias clidecor" "$RC_FILE" 2>/dev/null; then
+        echo "$ALIAS_LINE" >> "$RC_FILE"
+        echo "Added 'clidecor' alias to $RC_FILE"
     fi
 else
     echo "Could not detect .bashrc/.zshrc — add this line to your shell rc manually:"
     echo "  $LINE"
+    echo "  $ALIAS_LINE"
 fi
 
 echo ""
 echo "Done. Edit ~/.config/clidecor/config.conf to customize what shows."
-echo "Open a new terminal to see it in action!"
+echo -e "\033[1;32mIMPORTANT: Run 'source $RC_FILE' or open a new terminal to use the 'clidecor' command globally!\033[0m"
