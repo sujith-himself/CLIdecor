@@ -1631,6 +1631,30 @@ int main(int argc, char* argv[]) {
             Config cfg = Config::load_from_file(config_path);
             run_settings_menu(cfg, config_path);
             return 0;
+        } else if (arg == "update") {
+            std::cout << "\033[1;36m[\xe2\x86\x93] Fetching latest CLIdecor from GitHub...\033[0m\n";
+            #ifdef _WIN32
+            int res = system("git clone https://github.com/sujith-himself/CLIdecor.git %TEMP%\\clidecor_update 2>nul");
+            if (res == 0) {
+                std::cout << "\033[1;32m[\xe2\x9c\x93] Downloaded successfully. Compiling...\033[0m\n";
+                system("cd %TEMP%\\clidecor_update && powershell -ExecutionPolicy Bypass -File install.ps1");
+                system("rmdir /s /q %TEMP%\\clidecor_update");
+                std::cout << "\033[1;32m[\xe2\x9c\x93] Update Complete!\033[0m\n";
+            } else {
+                std::cout << "\033[1;31m[\xe2\x9c\x97] Failed to clone repository. Ensure git is installed.\033[0m\n";
+            }
+            #else
+            int res = system("git clone https://github.com/sujith-himself/CLIdecor.git /tmp/clidecor_update 2>/dev/null");
+            if (res == 0) {
+                std::cout << "\033[1;32m[\xe2\x9c\x93] Downloaded successfully. Compiling...\033[0m\n";
+                system("cd /tmp/clidecor_update && bash install.sh");
+                system("rm -rf /tmp/clidecor_update");
+                std::cout << "\033[1;32m[\xe2\x9c\x93] Update Complete!\033[0m\n";
+            } else {
+                std::cout << "\033[1;31m[\xe2\x9c\x97] Failed to clone repository. Ensure git is installed.\033[0m\n";
+            }
+            #endif
+            return 0;
         } else if (arg == "--desktop") {
             std::string config_path = Config::get_default_config_path();
             Config cfg = Config::load_from_file(config_path);
