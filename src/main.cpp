@@ -6,6 +6,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <lmcons.h>
+#include <conio.h>
 #pragma comment(lib, "ws2_32.lib")
 #else
 #include <unistd.h>
@@ -16,6 +17,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <pwd.h>
+#include <termios.h>
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #include <mach/mach.h>
@@ -141,6 +143,15 @@ struct Config {
             }
         }
         return cfg;
+    }
+
+    void save_to_file(const std::string& filepath) const {
+        std::ofstream file(filepath.c_str());
+        if (!file.is_open()) return;
+        file << "# CLI DECOR config\n";
+        for (const auto& pair : settings) {
+            file << pair.first << "=" << pair.second << "\n";
+        }
     }
 };
 
@@ -344,7 +355,31 @@ std::string get_cpu() {
                 cpu.erase(pos, s.length());
             }
         }
-        return trim(cpu);
+        cpu = trim(cpu);
+        
+        HKEY hKey;
+        double mhz = 0.0;
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            DWORD data = 0;
+            DWORD dataSize = sizeof(data);
+            DWORD type = 0;
+            if (RegQueryValueExA(hKey, "~MHz", NULL, &type, (LPBYTE)&data, &dataSize) == ERROR_SUCCESS && type == REG_DWORD) {
+                mhz = (double)data;
+            }
+            RegCloseKey(hKey);
+        }
+        
+        SYSTEM_INFO sysinfo;
+        GetSystemInfo(&sysinfo);
+        int cores = sysinfo.dwNumberOfProcessors;
+        
+        if (cores > 0) cpu += " (" + std::to_string(cores) + ")";
+        if (mhz > 0.0) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), " @ %.2f GHz", mhz / 1000.0);
+            cpu += buf;
+        }
+        return cpu;
     }
     return "Generic CPU";
 #elif defined(__APPLE__)
@@ -356,21 +391,40 @@ std::string get_cpu() {
     std::ifstream file("/proc/cpuinfo");
     if (file.is_open()) {
         std::string line;
+        std::string cpu_model = "";
+        int cores = 0;
+        double mhz = 0.0;
         while (std::getline(file, line)) {
-            if (line.find("model name") == 0) {
+            if (line.find("processor\t") == 0 || line.find("processor ") == 0) {
+                cores++;
+            } else if (cpu_model.empty() && line.find("model name") == 0) {
                 size_t colon = line.find(':');
                 if (colon != std::string::npos) {
-                    std::string cpu = line.substr(colon + 1);
-                    std::string remove_list[] = {"(R)", "(TM)", " CPU", " Processor", " Core ", " with Radeon Graphics"};
-                    for (const auto& s : remove_list) {
-                        size_t pos = 0;
-                        while ((pos = cpu.find(s, pos)) != std::string::npos) {
-                            cpu.erase(pos, s.length());
-                        }
-                    }
-                    return trim(cpu);
+                    cpu_model = trim(line.substr(colon + 1));
+                }
+            } else if (mhz == 0.0 && line.find("cpu MHz") == 0) {
+                size_t colon = line.find(':');
+                if (colon != std::string::npos) {
+                    try { mhz = std::stod(trim(line.substr(colon + 1))); } catch(...) {}
                 }
             }
+        }
+        if (!cpu_model.empty()) {
+            std::string remove_list[] = {"(R)", "(TM)", " CPU", " Processor", " Core ", " with Radeon Graphics"};
+            for (const auto& s : remove_list) {
+                size_t pos = 0;
+                while ((pos = cpu_model.find(s, pos)) != std::string::npos) {
+                    cpu_model.erase(pos, s.length());
+                }
+            }
+            cpu_model = trim(cpu_model);
+            if (cores > 0) cpu_model += " (" + std::to_string(cores) + ")";
+            if (mhz > 0.0) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), " @ %.2f GHz", mhz / 1000.0);
+                cpu_model += buf;
+            }
+            return cpu_model;
         }
     }
     return "Generic CPU";
@@ -458,7 +512,7 @@ std::string get_disk() {
         long long free_gb = totalFreeBytes.QuadPart / (1024 * 1024 * 1024);
         long long used_gb = total_gb - free_gb;
         int pct = total_gb > 0 ? (int)((used_gb * 100) / total_gb) : 0;
-        return std::to_string(used_gb) + "G / " + std::to_string(total_gb) + "G (" + std::to_string(pct) + "%)";
+        return std::to_string(used_gb) + " GiB / " + std::to_string(total_gb) + " GiB (" + std::to_string(pct) + "%)";
     }
     return "";
 #else
@@ -468,7 +522,7 @@ std::string get_disk() {
         long long free = (stat.f_bfree * stat.f_frsize) / (1024 * 1024 * 1024);
         long long used = total - free;
         int pct = total > 0 ? (int)((used * 100) / total) : 0;
-        return std::to_string(used) + "G / " + std::to_string(total) + "G (" + std::to_string(pct) + "%)";
+        return std::to_string(used) + " GiB / " + std::to_string(total) + " GiB (" + std::to_string(pct) + "%)";
     }
     return "";
 #endif
@@ -690,19 +744,203 @@ static std::string get_accent_code(const std::string& theme, const std::string& 
     return "\033[36m";
 }
 
+std::vector<std::string> get_os_logo(const std::string& os, int& width) {
+    std::string os_lower = os;
+    for (char& c : os_lower) c = std::tolower(c);
+    
+    width = 17;
+    if (os_lower.find("windows") != std::string::npos) {
+        return {
+            "     ____  ____  ",
+            "    |    ||    | ",
+            "    |____||____| ",
+            "     ____  ____  ",
+            "    |    ||    | ",
+            "    |____||____| "
+        };
+    } else if (os_lower.find("ubuntu") != std::string::npos) {
+        return {
+            "       _         ",
+            "   ---(_)---     ",
+            " _/         \\_   ",
+            "(_)         (_)  ",
+            "  \\         /    ",
+            "   ---(_)---     "
+        };
+    } else if (os_lower.find("arch") != std::string::npos) {
+        return {
+            "        /\\       ",
+            "       /  \\      ",
+            "      /    \\     ",
+            "     /      \\    ",
+            "    /   ,,   \\   ",
+            "   /   |  |   \\  ",
+            "  /_-''    ''-_\\"
+        };
+    } else if (os_lower.find("mac") != std::string::npos || os_lower.find("darwin") != std::string::npos) {
+        return {
+            "       __        ",
+            "      /  |       ",
+            "    .'   |       ",
+            "   /  ___|       ",
+            "  |  |           ",
+            "  |  |__         ",
+            "   \\    `        ",
+            "    `.___.'      "
+        };
+    }
+    return {
+        "       .--.      ",
+        "      |o_o |     ",
+        "      |:_/ |     ",
+        "     //   \\ \\    ",
+        "    (|     | )   ",
+        "   /'\\_   _/`\\   ",
+        "   \\___)=(___/   "
+    };
+}
+
+#ifdef _WIN32
+int get_keypress() {
+    int c = _getch();
+    if (c == 0 || c == 224) {
+        c = _getch();
+        if (c == 72) return 1001; // UP
+        if (c == 80) return 1002; // DOWN
+        if (c == 75) return 1003; // LEFT
+        if (c == 77) return 1004; // RIGHT
+    }
+    return c;
+}
+#else
+int get_keypress() {
+    struct termios oldt, newt;
+    int ch;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    ch = getchar();
+    if (ch == 27) { // ESC
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+        struct termios t_nb = newt;
+        t_nb.c_cc[VMIN] = 0;
+        t_nb.c_cc[VTIME] = 1;
+        tcsetattr(STDIN_FILENO, TCSANOW, &t_nb);
+        int c2 = getchar();
+        int c3 = -1;
+        if (c2 != EOF) c3 = getchar();
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+        if (c2 == 91) {
+            if (c3 == 65) return 1001; // UP
+            if (c3 == 66) return 1002; // DOWN
+            if (c3 == 68) return 1003; // LEFT
+            if (c3 == 67) return 1004; // RIGHT
+        }
+        return 27;
+    }
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return ch;
+}
+#endif
+
+struct MenuItem {
+    std::string label;
+    std::string key;
+    std::vector<std::string> options;
+};
+
+void run_settings_menu(Config& cfg, const std::string& config_path) {
+    std::vector<MenuItem> menu = {
+        {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
+        {"Accent Color", "accent_color", {"cyan", "red", "green", "yellow", "blue", "magenta", "white"}},
+        {"Show OS", "show_os", {}},
+        {"Show Kernel", "show_kernel", {}},
+        {"Show Uptime", "show_uptime", {}},
+        {"Show Packages", "show_packages", {}},
+        {"Show Shell", "show_shell", {}},
+        {"Show Terminal", "show_terminal", {}},
+        {"Show Resolution", "show_resolution", {}},
+        {"Show CPU", "show_cpu", {}},
+        {"Show GPU", "show_gpu", {}},
+        {"Show Memory", "show_memory", {}},
+        {"Show Disk", "show_disk", {}},
+        {"Show Battery", "show_battery", {}},
+        {"Show Local IP", "show_localip", {}},
+        {"Show Public IP", "show_publicip", {}},
+        {"Show Weather", "show_weather", {}},
+        {"Show Git", "show_git", {}},
+        {"Show Bars", "show_bars", {}},
+        {"Show Palette", "show_palette", {}}
+    };
+
+    int selected = 0;
+    while (true) {
+        std::cout << "\033[2J\033[H";
+        std::cout << "\033[1;36m=== CLI DECOR Settings ===\033[0m\n\n";
+        std::cout << "Use [UP]/[DOWN] to navigate, [LEFT]/[RIGHT] or [ENTER] to change.\nPress [ESC] or [q] to save & exit.\n\n";
+        
+        for (size_t i = 0; i < menu.size(); ++i) {
+            std::cout << (i == (size_t)selected ? "\033[1;32m> " : "  ");
+            std::cout << std::left << std::setw(20) << menu[i].label << "\033[0m";
+            
+            std::string current_val = cfg.get_string(menu[i].key, "");
+            if (menu[i].options.empty()) {
+                if (current_val.empty()) current_val = "1";
+                bool is_on = (current_val == "1" || current_val == "true" || current_val == "yes" || current_val == "on");
+                std::cout << (is_on ? "\033[1;32m[ ON  ]" : "\033[1;31m[ OFF ]") << "\033[0m\n";
+            } else {
+                if (current_val.empty()) current_val = menu[i].options[0];
+                std::cout << "\033[1;36m< " << current_val << " >\033[0m\n";
+            }
+        }
+        
+        int key = get_keypress();
+        if (key == 113 || key == 27) break; // q or ESC
+        if (key == 1001) selected = (selected > 0) ? selected - 1 : (int)menu.size() - 1;
+        if (key == 1002) selected = (selected + 1) % menu.size();
+        
+        if (key == 1003 || key == 1004 || key == 13 || key == 10) { // LEFT, RIGHT, ENTER
+            MenuItem& m = menu[selected];
+            if (m.options.empty()) {
+                std::string val = cfg.get_string(m.key, "1");
+                cfg.settings[m.key] = (val == "1" || val == "true" || val == "yes" || val == "on") ? "0" : "1";
+            } else {
+                std::string val = cfg.get_string(m.key, m.options[0]);
+                int idx = 0;
+                for (size_t i = 0; i < m.options.size(); ++i) {
+                    if (m.options[i] == val) idx = i;
+                }
+                if (key == 1003) idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
+                else idx = (idx + 1) % m.options.size();
+                cfg.settings[m.key] = m.options[idx];
+            }
+        }
+    }
+    
+    cfg.save_to_file(config_path);
+    std::cout << "\033[2J\033[H\033[1;32mSettings saved to " << config_path << "!\033[0m\n";
+}
+
 int main(int argc, char* argv[]) {
     if (argc > 1) {
         std::string arg = argv[1];
-        if (arg == "--help") {
+        if (arg == "--help" || arg == "-h") {
             std::cout << "CLI DECOR — neofetch replacement (C++ engine)\n\n"
                       << "Usage:\n"
                       << "  clidecor              run normally\n"
+                      << "  clidecor -s           open interactive settings menu\n"
                       << "  clidecor --refresh    clear cache and re-render\n"
                       << "  clidecor --help       show this message\n\n"
                       << "Config: ~/.config/clidecor/config.conf\n";
             return 0;
         } else if (arg == "--refresh") {
             std::cout << "Cache cleared.\n";
+            return 0;
+        } else if (arg == "--settings" || arg == "-s") {
+            std::string config_path = Config::get_default_config_path();
+            Config cfg = Config::load_from_file(config_path);
+            run_settings_menu(cfg, config_path);
             return 0;
         }
     }
@@ -766,7 +1004,14 @@ int main(int argc, char* argv[]) {
         auto [used_mb, total_mb] = SysInfo::get_memory();
         if (total_mb > 0) {
             int pct = (int)((used_mb * 100) / total_mb);
-            std::string mem_str = std::to_string(used_mb) + "MiB / " + std::to_string(total_mb) + "MiB";
+            std::string mem_str;
+            if (total_mb >= 1024) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", used_mb / 1024.0, total_mb / 1024.0);
+                mem_str = buf;
+            } else {
+                mem_str = std::to_string(used_mb) + " MiB / " + std::to_string(total_mb) + " MiB";
+            }
             if (cfg.get_bool("show_bars", true)) {
                 mem_str += " " + build_bar(pct, AC, VAL_COLOR);
             }
@@ -848,18 +1093,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (logo_block.empty()) {
-        std::vector<std::string> default_logo = {
-            "    ___    ",
-            "   /   \\   ",
-            "  | O O |  ",
-            "  |  ^  |  ",
-            "   \\___/   ",
-            "  CLIDECOR "
-        };
+        std::string os = "";
+        for (const auto& item : info_items) {
+            if (item.first == "OS:") os = item.second;
+        }
+        std::vector<std::string> default_logo = get_os_logo(os, img_width);
         for (const auto& l : default_logo) {
             logo_block.push_back(AC + l + RESET);
         }
-        img_width = 11;
     }
 
     size_t max_lines = std::max(logo_block.size(), text_block.size());
