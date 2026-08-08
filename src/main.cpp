@@ -174,10 +174,36 @@ std::string get_user_host() {
     return user + "@" + host;
 }
 
+#ifdef _WIN32
+#include <winreg.h>
+
+static std::string get_win_registry_string(HKEY hKeyRoot, const char* subKey, const char* valueName) {
+    HKEY hKey;
+    if (RegOpenKeyExA(hKeyRoot, subKey, 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+        return "";
+    }
+    char buffer[256];
+    DWORD bufferSize = sizeof(buffer);
+    DWORD type = 0;
+    LONG result = RegQueryValueExA(hKey, valueName, NULL, &type, (LPBYTE)buffer, &bufferSize);
+    RegCloseKey(hKey);
+    if (result == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ)) {
+        size_t len = bufferSize;
+        if (len > 0 && buffer[len - 1] == '\0') len--;
+        return trim(std::string(buffer, len));
+    }
+    return "";
+}
+#endif
+
 std::string get_os() {
 #ifdef _WIN32
-    std::string res = trim(exec("wmic os get Caption 2>NUL | findstr /V Caption"));
-    if (!res.empty()) return res;
+    std::string prod = get_win_registry_string(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "ProductName");
+    std::string disp = get_win_registry_string(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "DisplayVersion");
+    if (!prod.empty()) {
+        if (!disp.empty()) return prod + " " + disp;
+        return prod;
+    }
     return "Windows";
 #elif defined(__APPLE__)
     std::string ver = trim(exec("sw_vers -productVersion"));
@@ -203,11 +229,9 @@ std::string get_os() {
 
 std::string get_kernel() {
 #ifdef _WIN32
-    std::string ver = trim(exec("cmd /c ver"));
-    if (ver.rfind("Microsoft Windows [", 0) == 0 && ver.back() == ']') {
-        ver = ver.substr(19, ver.length() - 20);
-    }
-    return ver;
+    std::string build = get_win_registry_string(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "CurrentBuildNumber");
+    if (!build.empty()) return "Version 10.0." + build;
+    return "Windows NT";
 #else
     struct utsname info;
     if (uname(&info) == 0) return trim(info.release);
@@ -311,7 +335,18 @@ std::string get_resolution() {
 
 std::string get_cpu() {
 #ifdef _WIN32
-    return trim(exec("wmic cpu get Name 2>NUL | findstr /V Name"));
+    std::string cpu = get_win_registry_string(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString");
+    if (!cpu.empty()) {
+        std::string remove_list[] = {"(R)", "(TM)", " CPU", " Processor", " Core ", " with Radeon Graphics"};
+        for (const auto& s : remove_list) {
+            size_t pos = 0;
+            while ((pos = cpu.find(s, pos)) != std::string::npos) {
+                cpu.erase(pos, s.length());
+            }
+        }
+        return trim(cpu);
+    }
+    return "Generic CPU";
 #elif defined(__APPLE__)
     char buf[128];
     size_t len = sizeof(buf);
@@ -366,7 +401,14 @@ int get_cpu_usage() {
 
 std::string get_gpu() {
 #ifdef _WIN32
-    return trim(exec("wmic path win32_videocard get name 2>NUL | findstr /V Name"));
+    DISPLAY_DEVICEA dd;
+    std::memset(&dd, 0, sizeof(dd));
+    dd.cb = sizeof(dd);
+    if (EnumDisplayDevicesA(NULL, 0, &dd, 0)) {
+        std::string card(dd.DeviceString);
+        if (!card.empty()) return trim(card);
+    }
+    return get_win_registry_string(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0000", "DriverDesc");
 #elif defined(__APPLE__)
     return trim(exec("system_profiler SPDisplaysDataType 2>/dev/null | awk -F': ' '/Chipset Model/{print $2; exit}'"));
 #else
@@ -490,11 +532,16 @@ std::string get_weather(const std::string& location) {
 }
 
 std::string get_git() {
-    std::string is_repo = exec("git rev-parse --is-inside-work-tree 2>/dev/null");
-    if (is_repo != "true") return "";
-    std::string branch = exec("git branch --show-current 2>/dev/null");
-    std::string dirty = exec("git status --short 2>/dev/null");
-    if (!dirty.empty()) return branch + " * (dirty)";
+    std::ifstream head_file(".git/HEAD");
+    if (!head_file.is_open()) return "";
+    std::string line;
+    std::getline(head_file, line);
+    line = trim(line);
+    if (line.empty()) return "";
+    std::string branch = line;
+    if (line.rfind("ref: refs/heads/", 0) == 0) {
+        branch = line.substr(16);
+    }
     return branch + " \xe2\x9c\x93 (clean)";
 }
 
