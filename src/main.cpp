@@ -1187,6 +1187,7 @@ struct MenuItem {
 };
 
 std::vector<std::string> generate_preview(Config& cfg) {
+    std::cerr << "[DEBUG] generate_preview: Start.\n";
     std::vector<std::string> out;
     std::string theme = cfg.get_string("theme", "default");
     ThemeColors theme_colors = get_theme_colors(theme);
@@ -1196,12 +1197,14 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string RESET = "\033[0m";
     std::string VAL_COLOR = "\033[38;2;220;220;220m"; // Soft white for values
 
+    std::cerr << "[DEBUG] generate_preview: fetching module data...\n";
     static std::string user_host = SysInfo::get_user_host();
     std::vector<std::pair<std::string, std::string>> info_items;
 
     static std::vector<SysInfo::ModuleDef> registry = SysInfo::get_registry();
     for (auto& mod : registry) {
         if (cfg.get_bool(mod.config_key, mod.default_enabled)) {
+            std::cerr << "[DEBUG]   -> Fetching " << mod.config_key << "\n";
             if (!mod.is_cached) {
                 mod.cached_value = mod.fetcher(cfg);
                 if (mod.has_bar && mod.bar_fetcher) {
@@ -1219,6 +1222,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
             }
         }
     }
+    std::cerr << "[DEBUG] generate_preview: module data fetched.\n";
 
     std::vector<std::string> text_block;
     
@@ -1279,6 +1283,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
 
+    std::cerr << "[DEBUG] generate_preview: rendering image/logo block.\n";
     std::vector<std::string> logo_block;
     std::string img_path = cfg.get_string("image_path", "");
     int img_width = cfg.get_int("image_width", 28);
@@ -1887,13 +1892,20 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    std::cerr << "[DEBUG] Loading config...\n";
     std::string config_path = Config::get_default_config_path();
     Config cfg = Config::load_from_file(config_path);
+    std::cerr << "[DEBUG] Config loaded.\n";
 
+    std::cerr << "[DEBUG] Calling generate_preview...\n";
     std::vector<std::string> output = generate_preview(cfg);
+    std::cerr << "[DEBUG] generate_preview finished.\n";
+    
+    std::cerr << "[DEBUG] Printing output...\n";
     for (const auto& line : output) {
         std::cout << line << "\n";
     }
+    std::cerr << "[DEBUG] Exiting main.\n";
     } catch (const std::exception& e) {
         std::cerr << "\n\033[1;31mCLI DECOR CRASHED:\033[0m " << e.what() << "\n";
         std::cerr << "Please check your config.conf or report this issue on GitHub.\n";
