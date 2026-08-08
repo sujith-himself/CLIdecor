@@ -233,8 +233,28 @@ std::string get_os() {
         }
     }
     struct utsname info;
-    if (uname(&info) == 0) return trim(info.sysname);
+    if (uname(&info) == 0) {
+        std::string os = trim(info.sysname);
+        std::string arch = trim(info.machine);
+        return os + " " + arch;
+    }
     return "Linux";
+#endif
+}
+
+std::string get_host() {
+#ifdef _WIN32
+    std::string host = get_win_registry_string(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\BIOS", "SystemProductName");
+    if (!host.empty()) return host;
+    return "Unknown Host";
+#else
+    std::string product_name = trim(exec("cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null"));
+    std::string product_version = trim(exec("cat /sys/devices/virtual/dmi/id/product_version 2>/dev/null"));
+    if (!product_name.empty()) {
+        if (!product_version.empty() && product_version != "None") return product_name + " " + product_version;
+        return product_name;
+    }
+    return "Unknown Host";
 #endif
 }
 
@@ -294,6 +314,10 @@ std::string get_packages() {
     if (access("/usr/bin/flatpak", F_OK) == 0) {
         std::string res = exec("flatpak list 2>/dev/null | wc -l");
         if (!res.empty() && res != "0") pkgs.push_back(res + " (flatpak)");
+    }
+    if (access("/usr/bin/snap", F_OK) == 0) {
+        std::string res = exec("snap list 2>/dev/null | tail -n +2 | wc -l");
+        if (!res.empty() && res != "0") pkgs.push_back(trim(res) + " (snap)");
     }
     if (pkgs.empty()) return "";
     std::string out = "";
@@ -558,6 +582,55 @@ std::string get_disk() {
 #endif
 }
 
+std::string get_swap() {
+#ifdef _WIN32
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        long long total_page = memInfo.ullTotalPageFile;
+        long long total_phys = memInfo.ullTotalPhys;
+        if (total_page > total_phys) {
+            double swap_total = (double)(total_page - total_phys) / (1024.0 * 1024.0 * 1024.0);
+            double swap_free = (double)(memInfo.ullAvailPageFile - memInfo.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
+            if (swap_free < 0) swap_free = 0;
+            double swap_used = swap_total - swap_free;
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", swap_used, swap_total);
+            return buf;
+        }
+    }
+    return "Disabled";
+#else
+    std::ifstream file("/proc/meminfo");
+    if (!file.is_open()) return "Disabled";
+    long long total_kb = 0, free_kb = 0;
+    std::string key;
+    long long val;
+    std::string unit;
+    while (file >> key >> val >> unit) {
+        if (key == "SwapTotal:") total_kb = val;
+        else if (key == "SwapFree:") free_kb = val;
+    }
+    if (total_kb == 0) return "Disabled";
+    double total_gb = total_kb / (1024.0 * 1024.0);
+    double used_gb = (total_kb - free_kb) / (1024.0 * 1024.0);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", used_gb, total_gb);
+    return buf;
+#endif
+}
+
+std::string get_locale() {
+    const char* lc = std::getenv("LC_ALL");
+    if (!lc) lc = std::getenv("LANG");
+    if (lc) return lc;
+#ifdef _WIN32
+    return "English_United States.1252";
+#else
+    return "C";
+#endif
+}
+
 std::string get_battery() {
 #ifdef _WIN32
     SYSTEM_POWER_STATUS status;
@@ -601,9 +674,16 @@ std::string get_local_ip() {
     }
     return "";
 #else
-    std::string ip = exec("hostname -I 2>/dev/null | awk '{print $1}'");
-    if (!ip.empty()) return ip;
-    return exec("ip route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i==\"src\") print $(i+1); exit}'");
+    std::string out = exec("ip -4 route get 1 2>/dev/null | awk '{print $7, $5; exit}'");
+    if (!out.empty()) {
+        std::istringstream iss(out);
+        std::string ip, iface;
+        if (iss >> ip >> iface) {
+            std::string mask = exec(("ip -o -f inet addr show " + iface + " 2>/dev/null | awk '{print $4}' | cut -d/ -f2").c_str());
+            return ip + "/" + trim(mask) + " (" + iface + ")";
+        }
+    }
+    return "127.0.0.1";
 #endif
 }
 
@@ -885,6 +965,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
         {"Accent Color", "accent_color", {"cyan", "red", "green", "yellow", "blue", "magenta", "white"}},
         {"Show OS", "show_os", {}},
+        {"Show Host", "show_host", {}},
         {"Show Kernel", "show_kernel", {}},
         {"Show Uptime", "show_uptime", {}},
         {"Show Packages", "show_packages", {}},
@@ -894,10 +975,12 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Show CPU", "show_cpu", {}},
         {"Show GPU", "show_gpu", {}},
         {"Show Memory", "show_memory", {}},
+        {"Show Swap", "show_swap", {}},
         {"Show Disk", "show_disk", {}},
         {"Show Battery", "show_battery", {}},
         {"Show Local IP", "show_localip", {}},
         {"Show Public IP", "show_publicip", {}},
+        {"Show Locale", "show_locale", {}},
         {"Show Weather", "show_weather", {}},
         {"Show Git", "show_git", {}},
         {"Show Bars", "show_bars", {}},
@@ -992,6 +1075,10 @@ int main(int argc, char* argv[]) {
         std::string os = SysInfo::get_os();
         if (!os.empty()) info_items.push_back({"OS:", os});
     }
+    if (cfg.get_bool("show_host", true)) {
+        std::string host = SysInfo::get_host();
+        if (!host.empty()) info_items.push_back({"Host:", host});
+    }
     if (cfg.get_bool("show_kernel", true)) {
         std::string kernel = SysInfo::get_kernel();
         if (!kernel.empty()) info_items.push_back({"Kernel:", kernel});
@@ -1048,6 +1135,10 @@ int main(int argc, char* argv[]) {
             info_items.push_back({"Memory:", mem_str});
         }
     }
+    if (cfg.get_bool("show_swap", true)) {
+        std::string swap_str = SysInfo::get_swap();
+        if (!swap_str.empty()) info_items.push_back({"Swap:", swap_str});
+    }
     if (cfg.get_bool("show_disk", true)) {
         std::string disk = SysInfo::get_disk();
         if (!disk.empty()) info_items.push_back({"Disk:", disk});
@@ -1063,6 +1154,10 @@ int main(int argc, char* argv[]) {
     if (cfg.get_bool("show_publicip", false)) {
         std::string pip = SysInfo::get_public_ip();
         if (!pip.empty()) info_items.push_back({"Public IP:", pip});
+    }
+    if (cfg.get_bool("show_locale", true)) {
+        std::string loc = SysInfo::get_locale();
+        if (!loc.empty()) info_items.push_back({"Locale:", loc});
     }
     if (cfg.get_bool("show_weather", false)) {
         std::string loc = cfg.get_string("weather_location", "");
