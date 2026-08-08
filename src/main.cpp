@@ -245,7 +245,7 @@ std::string get_kernel() {
     return "Windows NT";
 #else
     struct utsname info;
-    if (uname(&info) == 0) return trim(info.release);
+    if (uname(&info) == 0) return std::string(info.sysname) + " " + trim(info.release);
     return "Unknown";
 #endif
 }
@@ -305,25 +305,49 @@ std::string get_packages() {
 }
 
 std::string get_shell() {
+    std::string shell_name = "bash";
     const char* sh = std::getenv("SHELL");
     if (sh) {
         std::string path(sh);
         size_t idx = path.find_last_of("/\\");
-        if (idx != std::string::npos) return path.substr(idx + 1);
-        return path;
+        if (idx != std::string::npos) shell_name = path.substr(idx + 1);
+        else shell_name = path;
     }
 #ifdef _WIN32
-    return "cmd.exe";
+    if (!sh) shell_name = "cmd.exe";
 #else
-    return "bash";
+    std::string cmd = shell_name + " --version 2>/dev/null | grep -m 1 -o '[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+' | head -n 1";
+    std::string ver = exec(cmd.c_str());
+    if (!ver.empty()) return shell_name + " " + trim(ver);
 #endif
+    return shell_name;
 }
 
 std::string get_terminal() {
+    std::string term = "";
+#ifndef _WIN32
+    const char* ssh_tty = std::getenv("SSH_TTY");
+    const char* ssh_conn = std::getenv("SSH_CONNECTION");
+    if (ssh_tty || ssh_conn) {
+        std::string tty = exec("tty 2>/dev/null");
+        if (!tty.empty() && tty.find("not a tty") == std::string::npos) {
+            term = trim(tty);
+            std::string ppid = exec("ps -o ppid= -p $$ 2>/dev/null");
+            if (!ppid.empty()) {
+                std::string parent = exec(("ps -o comm= -p " + trim(ppid) + " 2>/dev/null").c_str());
+                if (!parent.empty() && trim(parent) == "sshd") {
+                    std::string sshd_ver = exec("sshd -V 2>&1 | head -n 1 | awk '{print $1}' | sed 's/OpenSSH_//'");
+                    if (!sshd_ver.empty()) term += " " + trim(sshd_ver);
+                }
+            }
+            return term;
+        }
+    }
+#endif
     const char* term_prog = std::getenv("TERM_PROGRAM");
     if (term_prog) return term_prog;
-    const char* term = std::getenv("TERM");
-    if (term) return term;
+    const char* env_term = std::getenv("TERM");
+    if (env_term) return env_term;
 #ifdef _WIN32
     return "Windows Terminal / Console";
 #else
@@ -508,21 +532,27 @@ std::string get_disk() {
 #ifdef _WIN32
     ULARGE_INTEGER freeBytes, totalBytes, totalFreeBytes;
     if (GetDiskFreeSpaceExA("C:\\", &freeBytes, &totalBytes, &totalFreeBytes)) {
-        long long total_gb = totalBytes.QuadPart / (1024 * 1024 * 1024);
-        long long free_gb = totalFreeBytes.QuadPart / (1024 * 1024 * 1024);
-        long long used_gb = total_gb - free_gb;
+        double total_gb = (double)totalBytes.QuadPart / (1024.0 * 1024.0 * 1024.0);
+        double free_gb = (double)totalFreeBytes.QuadPart / (1024.0 * 1024.0 * 1024.0);
+        double used_gb = total_gb - free_gb;
         int pct = total_gb > 0 ? (int)((used_gb * 100) / total_gb) : 0;
-        return std::to_string(used_gb) + " GiB / " + std::to_string(total_gb) + " GiB (" + std::to_string(pct) + "%)";
+        char buf[128];
+        snprintf(buf, sizeof(buf), "C:\\: %.2f GiB / %.2f GiB (%d%%) - NTFS", used_gb, total_gb, pct);
+        return buf;
     }
     return "";
 #else
     struct statvfs stat;
     if (statvfs("/", &stat) == 0) {
-        long long total = (stat.f_blocks * stat.f_frsize) / (1024 * 1024 * 1024);
-        long long free = (stat.f_bfree * stat.f_frsize) / (1024 * 1024 * 1024);
-        long long used = total - free;
+        double total = (double)(stat.f_blocks * stat.f_frsize) / (1024.0 * 1024.0 * 1024.0);
+        double free = (double)(stat.f_bfree * stat.f_frsize) / (1024.0 * 1024.0 * 1024.0);
+        double used = total - free;
         int pct = total > 0 ? (int)((used * 100) / total) : 0;
-        return std::to_string(used) + " GiB / " + std::to_string(total) + " GiB (" + std::to_string(pct) + "%)";
+        std::string fstype = exec("df -T / 2>/dev/null | awk 'NR==2 {print $2}'");
+        if (fstype.empty()) fstype = "ext4";
+        char buf[128];
+        snprintf(buf, sizeof(buf), "(/): %.2f GiB / %.2f GiB (%d%%) - %s", used, total, pct, trim(fstype).c_str());
+        return buf;
     }
     return "";
 #endif
