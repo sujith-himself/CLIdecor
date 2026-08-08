@@ -37,11 +37,16 @@ fi
 
 chmod +x "$INSTALL_DIR/clidecor" 2>/dev/null || true
 
+EXE_NAME="clidecor"
+if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
+    EXE_NAME="clidecor.exe"
+fi
+
 # Make globally accessible for the user
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
-if [ -f "$INSTALL_DIR/clidecor" ]; then
-    ln -sf "$INSTALL_DIR/clidecor" "$BIN_DIR/clidecor"
+if [ -f "$INSTALL_DIR/$EXE_NAME" ]; then
+    ln -sf "$INSTALL_DIR/$EXE_NAME" "$BIN_DIR/clidecor"
 fi
 
 RC_FILE=""
@@ -51,14 +56,18 @@ elif [ -f "$HOME/.bashrc" ]; then
     RC_FILE="$HOME/.bashrc"
 elif [ -f "$HOME/.bash_profile" ]; then
     RC_FILE="$HOME/.bash_profile"
+else
+    # Fallback: Create .bashrc
+    RC_FILE="$HOME/.bashrc"
+    touch "$RC_FILE"
 fi
 
-LINE="\$HOME/.config/clidecor/clidecor"
-ALIAS_LINE="alias clidecor=\"\$HOME/.config/clidecor/clidecor\""
+LINE="\$HOME/.config/clidecor/$EXE_NAME"
+ALIAS_LINE="alias clidecor=\"\$HOME/.config/clidecor/$EXE_NAME\""
 
 if [ -n "$RC_FILE" ]; then
     # Add auto-start on terminal launch
-    if ! grep -qF "$LINE" "$RC_FILE" 2>/dev/null; then
+    if ! grep -qF "\$HOME/.config/clidecor" "$RC_FILE" 2>/dev/null; then
         echo "" >> "$RC_FILE"
         echo "# CLI DECOR - runs on new terminal" >> "$RC_FILE"
         echo "$LINE" >> "$RC_FILE"
@@ -70,10 +79,6 @@ if [ -n "$RC_FILE" ]; then
         echo "$ALIAS_LINE" >> "$RC_FILE"
         echo "Added 'clidecor' alias to $RC_FILE"
     fi
-else
-    echo "Could not detect .bashrc/.zshrc — add this line to your shell rc manually:"
-    echo "  $LINE"
-    echo "  $ALIAS_LINE"
 fi
 
 echo ""
