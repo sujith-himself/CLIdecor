@@ -810,15 +810,8 @@ std::vector<std::string> render_image(
     int rows_mult = (style == "ascii") ? 1 : 2;
     int base_h = (int)(base_width * aspect * 0.55f * rows_mult);
     
-    if (max_h > 0 && base_h > max_h) {
-        float shrink = (float)max_h / (float)base_h;
-        base_width = std::max(1, (int)(base_width * shrink));
-        base_h = max_h;
-    }
-    
     int width_cols = std::max(1, (int)(base_width * scale_x));
     int target_h = std::max(2, (int)(base_h * scale_y));
-    if (max_h > 0 && target_h > max_h) target_h = max_h;
     if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
 
     std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
@@ -1212,10 +1205,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     }
 
     size_t max_lines = text_block.size();
-    if (logo_block.size() > max_lines) {
-        max_lines = logo_block.size();
-    }
-    size_t pad_text = (max_lines - text_block.size()) / 2;
+    size_t pad_text = 0;
 
     auto get_visual_len = [](const std::string& str) {
         size_t len = 0;
