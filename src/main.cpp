@@ -961,9 +961,23 @@ struct MenuItem {
 };
 
 void run_settings_menu(Config& cfg, const std::string& config_path) {
-    std::vector<MenuItem> menu = {
-        {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
-        {"Accent Color", "accent_color", {"cyan", "red", "green", "yellow", "blue", "magenta", "white"}},
+    auto draw_header = []() {
+        std::cout << "\033[2J\033[H";
+        std::cout << "\033[1;36m";
+        std::cout << "   _____ _      _____   _____  ______  _____ ____  _____  \n";
+        std::cout << "  / ____| |    |_   _| |  __ \\|  ____|/ ____/ __ \\|  __ \\ \n";
+        std::cout << " | |    | |      | |   | |  | | |__  | |   | |  | | |__) |\n";
+        std::cout << " | |    | |      | |   | |  | |  __| | |   | |  | |  _  / \n";
+        std::cout << " | |____| |____ _| |_  | |__| | |____| |___| |__| | | \\ \\ \n";
+        std::cout << "  \\_____|______|_____| |_____/|______|\\_____\\____/|_|  \\_\\\n";
+        std::cout << "\033[0m\n";
+        std::cout << "Press [\033[1;33mq\033[0m] or [\033[1;33mESC\033[0m] to quit/back, [\033[1;32mENTER\033[0m] to confirm/edit.\n\n";
+    };
+
+    int state = 0;
+    int selected = 0;
+    
+    std::vector<MenuItem> info_menu = {
         {"Show OS", "show_os", {}},
         {"Show Host", "show_host", {}},
         {"Show Kernel", "show_kernel", {}},
@@ -982,51 +996,137 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Show Public IP", "show_publicip", {}},
         {"Show Locale", "show_locale", {}},
         {"Show Weather", "show_weather", {}},
-        {"Show Git", "show_git", {}},
-        {"Show Bars", "show_bars", {}},
-        {"Show Palette", "show_palette", {}}
+        {"Show Git", "show_git", {}}
+    };
+    
+    std::vector<MenuItem> app_menu = {
+        {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
+        {"Accent Color", "accent_color", {"cyan", "red", "green", "yellow", "blue", "magenta", "white"}},
+        {"Show Palette", "show_palette", {}},
+        {"Show Bars", "show_bars", {}}
     };
 
-    int selected = 0;
     while (true) {
-        std::cout << "\033[2J\033[H";
-        std::cout << "\033[1;36m=== CLI DECOR Settings ===\033[0m\n\n";
-        std::cout << "Use [UP]/[DOWN] to navigate, [LEFT]/[RIGHT] or [ENTER] to change.\nPress [ESC] or [q] to save & exit.\n\n";
+        draw_header();
         
-        for (size_t i = 0; i < menu.size(); ++i) {
-            std::cout << (i == (size_t)selected ? "\033[1;32m> " : "  ");
-            std::cout << std::left << std::setw(20) << menu[i].label << "\033[0m";
-            
-            std::string current_val = cfg.get_string(menu[i].key, "");
-            if (menu[i].options.empty()) {
-                if (current_val.empty()) current_val = "1";
-                bool is_on = (current_val == "1" || current_val == "true" || current_val == "yes" || current_val == "on");
-                std::cout << (is_on ? "\033[1;32m[ ON  ]" : "\033[1;31m[ OFF ]") << "\033[0m\n";
-            } else {
-                if (current_val.empty()) current_val = menu[i].options[0];
-                std::cout << "\033[1;36m< " << current_val << " >\033[0m\n";
+        if (state == 0) { // Main Menu
+            std::vector<std::string> main_opts = {
+                "1. Information Customization",
+                "2. Image Customization",
+                "3. Appearance & Themes",
+                "4. Custom Text (MOTD)",
+                "5. Save & Exit"
+            };
+            for (size_t i = 0; i < main_opts.size(); ++i) {
+                std::cout << (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::cout << main_opts[i] << "\033[0m\n";
+            }
+            int key = get_keypress();
+            if (key == 113 || key == 27) break; // q or ESC
+            if (key == 1001) selected = (selected > 0) ? selected - 1 : (int)main_opts.size() - 1;
+            if (key == 1002) selected = (selected + 1) % main_opts.size();
+            if (key == 13 || key == 10) { // ENTER
+                if (selected == 0) { state = 1; selected = 0; }
+                else if (selected == 1) { state = 3; selected = 0; }
+                else if (selected == 2) { state = 2; selected = 0; }
+                else if (selected == 3) {
+                    draw_header();
+                    std::cout << "\033[1;36mEnter Custom Text (MOTD) [use | for random]: \033[0m";
+                    std::string txt;
+                    std::getline(std::cin, txt);
+                    cfg.settings["custom_text"] = txt;
+                }
+                else if (selected == 4) break; // Save & Exit
+            }
+        } 
+        else if (state == 1 || state == 2) { // Info or Appearance
+            std::vector<MenuItem>& menu = (state == 1) ? info_menu : app_menu;
+            for (size_t i = 0; i < menu.size(); ++i) {
+                std::cout << (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::cout << std::left << std::setw(20) << menu[i].label << "\033[0m";
+                std::string current_val = cfg.get_string(menu[i].key, "");
+                if (menu[i].options.empty()) {
+                    if (current_val.empty()) current_val = "1";
+                    bool is_on = (current_val == "1" || current_val == "true" || current_val == "yes" || current_val == "on");
+                    std::cout << (is_on ? "\033[1;32m[ ON  ]" : "\033[1;31m[ OFF ]") << "\033[0m\n";
+                } else {
+                    if (current_val.empty()) current_val = menu[i].options[0];
+                    std::cout << "\033[1;36m< " << current_val << " >\033[0m\n";
+                }
+            }
+            int key = get_keypress();
+            if (key == 113 || key == 27) { state = 0; selected = 0; continue; }
+            if (key == 1001) selected = (selected > 0) ? selected - 1 : (int)menu.size() - 1;
+            if (key == 1002) selected = (selected + 1) % menu.size();
+            if (key == 1003 || key == 1004 || key == 13 || key == 10) {
+                MenuItem& m = menu[selected];
+                if (m.options.empty()) {
+                    std::string val = cfg.get_string(m.key, "1");
+                    cfg.settings[m.key] = (val == "1" || val == "true" || val == "yes" || val == "on") ? "0" : "1";
+                } else {
+                    std::string val = cfg.get_string(m.key, m.options[0]);
+                    int idx = 0;
+                    for (size_t i = 0; i < m.options.size(); ++i) {
+                        if (m.options[i] == val) idx = i;
+                    }
+                    if (key == 1003) idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
+                    else idx = (idx + 1) % m.options.size();
+                    cfg.settings[m.key] = m.options[idx];
+                }
             }
         }
-        
-        int key = get_keypress();
-        if (key == 113 || key == 27) break; // q or ESC
-        if (key == 1001) selected = (selected > 0) ? selected - 1 : (int)menu.size() - 1;
-        if (key == 1002) selected = (selected + 1) % menu.size();
-        
-        if (key == 1003 || key == 1004 || key == 13 || key == 10) { // LEFT, RIGHT, ENTER
-            MenuItem& m = menu[selected];
-            if (m.options.empty()) {
-                std::string val = cfg.get_string(m.key, "1");
-                cfg.settings[m.key] = (val == "1" || val == "true" || val == "yes" || val == "on") ? "0" : "1";
-            } else {
-                std::string val = cfg.get_string(m.key, m.options[0]);
-                int idx = 0;
-                for (size_t i = 0; i < m.options.size(); ++i) {
-                    if (m.options[i] == val) idx = i;
+        else if (state == 3) { // Image Settings
+            std::vector<std::string> img_opts = {
+                "1. Enter image path manually",
+                "2. Choose photo using File Manager"
+            };
+            for (size_t i = 0; i < img_opts.size(); ++i) {
+                std::cout << (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::cout << img_opts[i] << "\033[0m\n";
+            }
+            int key = get_keypress();
+            if (key == 113 || key == 27) { state = 0; selected = 0; continue; }
+            if (key == 1001) selected = (selected > 0) ? selected - 1 : (int)img_opts.size() - 1;
+            if (key == 1002) selected = (selected + 1) % img_opts.size();
+            if (key == 13 || key == 10) {
+                std::string path = "";
+                if (selected == 0) {
+                    draw_header();
+                    std::cout << "\033[1;36mEnter image path (or leave empty for default ascii): \033[0m";
+                    std::getline(std::cin, path);
+                } else if (selected == 1) {
+                    draw_header();
+#ifdef _WIN32
+                    std::cout << "\033[1;36mOpening Windows File Picker...\033[0m\n";
+                    std::string ps = "powershell -c \"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Image Files|*.jpg;*.jpeg;*.png;*.bmp;*.webp'; $f.ShowHelp = $true; if($f.ShowDialog() -eq 'OK'){ $f.FileName }\"";
+                    path = trim(exec(ps.c_str()));
+#else
+                    if (access("/usr/bin/zenity", F_OK) == 0) {
+                        std::cout << "\033[1;36mOpening Zenity File Picker...\033[0m\n";
+                        path = trim(exec("zenity --file-selection --title=\"Select Image for CLI DECOR\" 2>/dev/null"));
+                    } else if (access("/usr/bin/kdialog", F_OK) == 0) {
+                        std::cout << "\033[1;36mOpening KDE File Picker...\033[0m\n";
+                        path = trim(exec("kdialog --getopenfilename . \"Image Files (*.jpg *.jpeg *.png *.bmp *.webp)\" 2>/dev/null"));
+                    } else {
+                        std::cout << "\033[1;31mNo GUI file picker found (zenity/kdialog). Please install one!\033[0m\n\n";
+                        std::cout << "\033[1;36mEnter image path manually (or leave empty for default ascii): \033[0m";
+                        std::getline(std::cin, path);
+                    }
+#endif
                 }
-                if (key == 1003) idx = (idx > 0) ? idx - 1 : (int)m.options.size() - 1;
-                else idx = (idx + 1) % m.options.size();
-                cfg.settings[m.key] = m.options[idx];
+                
+                if (!path.empty()) {
+                    std::cout << "\n\033[1;33mWarning: Very large images may ruin the alignment order if they exceed terminal height.\033[0m\n";
+                    std::cout << "Do you want to proceed with this image? (y/n): ";
+                    std::string ans;
+                    std::getline(std::cin, ans);
+                    if (ans == "y" || ans == "Y" || ans == "yes" || ans == "Yes") {
+                        cfg.settings["image_path"] = path;
+                    }
+                } else {
+                    cfg.settings["image_path"] = "";
+                }
+                state = 0; selected = 0; // Go back to main menu
             }
         }
     }
@@ -1232,7 +1332,27 @@ int main(int argc, char* argv[]) {
     size_t pad_logo = (max_lines - logo_block.size()) / 2;
     size_t pad_text = (max_lines - text_block.size()) / 2;
 
-    std::vector<std::string> new_logo(pad_logo, std::string(img_width, ' '));
+    auto get_visual_len = [](const std::string& str) {
+        size_t len = 0;
+        bool in_ansi = false;
+        for (char c : str) {
+            if (c == '\033') in_ansi = true;
+            else if (in_ansi && c == 'm') in_ansi = false;
+            else if (!in_ansi) {
+                if ((c & 0xC0) != 0x80) len++;
+            }
+        }
+        return len;
+    };
+
+    size_t actual_logo_width = 0;
+    for (const auto& l : logo_block) {
+        size_t vlen = get_visual_len(l);
+        if (vlen > actual_logo_width) actual_logo_width = vlen;
+    }
+    if (actual_logo_width == 0) actual_logo_width = img_width;
+
+    std::vector<std::string> new_logo(pad_logo, std::string(actual_logo_width, ' '));
     new_logo.insert(new_logo.end(), logo_block.begin(), logo_block.end());
 
     std::vector<std::string> new_text(pad_text, "");
@@ -1241,7 +1361,16 @@ int main(int argc, char* argv[]) {
     max_lines = std::max(new_logo.size(), new_text.size());
 
     for (size_t i = 0; i < max_lines; ++i) {
-        std::string l_line = (i < new_logo.size()) ? new_logo[i] : std::string(img_width, ' ');
+        std::string l_line = "";
+        if (i < new_logo.size()) {
+            l_line = new_logo[i];
+            size_t vlen = get_visual_len(l_line);
+            if (vlen < actual_logo_width) {
+                l_line += std::string(actual_logo_width - vlen, ' ');
+            }
+        } else {
+            l_line = std::string(actual_logo_width, ' ');
+        }
         std::string t_line = (i < new_text.size()) ? new_text[i] : "";
         std::cout << l_line << "   " << t_line << "\n";
     }
