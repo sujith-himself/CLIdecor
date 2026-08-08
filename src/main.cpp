@@ -621,8 +621,10 @@ std::string get_swap() {
         long long total_phys = memInfo.ullTotalPhys;
         if (total_page > total_phys) {
             double swap_total = (double)(total_page - total_phys) / (1024.0 * 1024.0 * 1024.0);
-            double swap_free = (double)(memInfo.ullAvailPageFile - memInfo.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
-            if (swap_free < 0) swap_free = 0;
+            double swap_free = 0.0;
+            if (memInfo.ullAvailPageFile > memInfo.ullAvailPhys) {
+                swap_free = (double)(memInfo.ullAvailPageFile - memInfo.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
+            }
             double swap_used = swap_total - swap_free;
             char buf[128];
             snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", swap_used, swap_total);
