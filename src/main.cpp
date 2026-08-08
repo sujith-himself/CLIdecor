@@ -1152,6 +1152,11 @@ std::vector<std::string> generate_preview(Config& cfg) {
         size_t pos = bg_color.find("38;2;");
         if (pos != std::string::npos) {
             bg_color.replace(pos, 5, "48;2;");
+        } else {
+            pos = bg_color.find("[3");
+            if (pos != std::string::npos) {
+                bg_color[pos + 1] = '4';
+            }
         }
         std::string fg_color = "\033[1;37m"; 
 
