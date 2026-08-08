@@ -1737,6 +1737,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 }
 
 int main(int argc, char* argv[]) {
+    std::cerr << "[DEBUG] Entered main function.\n";
     try {
     if (argc > 1) {
         std::string arg = argv[1];
