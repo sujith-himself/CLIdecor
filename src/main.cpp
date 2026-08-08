@@ -853,10 +853,15 @@ std::vector<std::string> render_image(
 ) {
     std::vector<std::string> out_lines;
     int orig_w, orig_h, orig_channels;
+    
+    std::cerr << "[DEBUG] render_image: calling stbi_load on path '" << path << "'\n";
     unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &orig_channels, 4);
+    std::cerr << "[DEBUG] render_image: stbi_load returned " << (void*)data << "\n";
+    
     int channels = 4;
     if (!data) return out_lines;
 
+    std::cerr << "[DEBUG] render_image: calculating dimensions...\n";
     if (base_width <= 0) base_width = 28;
     if (block_size < 1) block_size = 1;
 
@@ -871,7 +876,10 @@ std::vector<std::string> render_image(
     int target_h = std::max(2, (int)(base_h * scale_y));
     if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
 
+    std::cerr << "[DEBUG] render_image: allocating grid " << width_cols << "x" << target_h << "...\n";
     std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
+    
+    std::cerr << "[DEBUG] render_image: sampling data...\n";
     for (int y = 0; y < target_h; ++y) {
         for (int x = 0; x < width_cols; ++x) {
             int effective_x = (x / block_size) * block_size;
@@ -881,7 +889,9 @@ std::vector<std::string> render_image(
             grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
         }
     }
+    std::cerr << "[DEBUG] render_image: freeing data...\n";
     stbi_image_free(data);
+    std::cerr << "[DEBUG] render_image: data freed. generating lines...\n";
 
 
     for (int y = 0; y < target_h; ++y) {
