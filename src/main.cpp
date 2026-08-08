@@ -1222,14 +1222,14 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         
         std::vector<std::string> main_opts = {
             "1. Information Customization",
-            "2. Image Customization",
+            "2. Side Art",
             "3. Appearance & Themes",
-            "4. Custom Text (MOTD)",
+            "4. Reminder Box",
             "5. Save & Exit"
         };
         std::vector<std::string> img_opts = {
-            "1. Enter image path manually",
-            "2. Choose photo using File Manager"
+            "1. ASCII Art (Default)",
+            "2. Custom Image"
         };
 
         if (state == 0) { // Main Menu
@@ -1283,7 +1283,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         std::cout << std::flush;
         
         int key = get_keypress();
-        if (key == 113) { // q
+        if (key == 113 || key == 27) { // q or ESC
             if (state == 0) break; // exit settings
             else { state = 0; selected = 0; continue; }
         }
@@ -1304,12 +1304,12 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     else if (selected == 2) { state = 2; selected = 0; }
                     else if (selected == 3) {
                         std::cout << "\033[2J\033[H";
-                        std::cout << "\033[1;36mEnter Custom Text (MOTD) [use | for random]: \033[0m";
+                        std::cout << "\033[1;36mEnter Reminder Text (Leave empty to disable): \033[0m";
                         std::cout << "\033[?25h";
                         std::string txt;
                         std::getline(std::cin, txt);
                         std::cout << "\033[?25l";
-                        cfg.settings["custom_text"] = txt;
+                        cfg.settings["reminder_text"] = txt;
                     }
                     else if (selected == 4) break; // Save & Exit
                 }
@@ -1333,38 +1333,26 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     cfg.settings[m.key] = m.options[idx];
                 }
             }
-            else if (state == 3) { // Image
+            else if (state == 3) { // Side Art
                 if (key == 13 || key == 10) {
-                    std::string path = "";
                     if (selected == 0) {
-                        std::cout << "\033[2J\033[H";
-                        std::cout << "\033[1;36mEnter image path (or leave empty for default ascii): \033[0m";
-                        std::cout << "\033[?25h";
-                        std::getline(std::cin, path);
-                        std::cout << "\033[?25l";
+                        cfg.settings["image_path"] = "";
                     } else if (selected == 1) {
                         std::cout << "\033[2J\033[H";
+                        std::cout << "\033[1;36mEnter custom image path (or leave empty for default Tux logo): \033[0m";
+                        std::cout << "\033[?25h";
+                        std::string path;
+                        std::getline(std::cin, path);
+                        std::cout << "\033[?25l";
+                        if (path.empty()) {
+                            std::string home = "";
 #ifdef _WIN32
-                        std::cout << "\033[1;36mOpening Windows File Picker...\033[0m\n";
-                        std::string ps = "powershell -c \"Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'Image Files|*.jpg;*.jpeg;*.png;*.bmp;*.webp'; $f.ShowHelp = $true; if($f.ShowDialog() -eq 'OK'){ $f.FileName }\"";
-                        path = trim(exec(ps.c_str()));
+                            if (getenv("USERPROFILE")) home = getenv("USERPROFILE");
 #else
-                        if (access("/usr/bin/zenity", F_OK) == 0) {
-                            std::cout << "\033[1;36mOpening Zenity File Picker...\033[0m\n";
-                            path = trim(exec("zenity --file-selection --title=\"Select Image for CLI DECOR\" 2>/dev/null"));
-                        } else if (access("/usr/bin/kdialog", F_OK) == 0) {
-                            std::cout << "\033[1;36mOpening KDE File Picker...\033[0m\n";
-                            path = trim(exec("kdialog --getopenfilename . \"Image Files (*.jpg *.jpeg *.png *.bmp *.webp)\" 2>/dev/null"));
-                        } else {
-                            std::cout << "\033[1;31mNo GUI file picker found (zenity/kdialog). Please install one!\033[0m\n\n";
-                            std::cout << "\033[1;36mEnter image path manually (or leave empty for default ascii): \033[0m";
-                            std::cout << "\033[?25h";
-                            std::getline(std::cin, path);
-                            std::cout << "\033[?25l";
-                        }
+                            if (getenv("HOME")) home = getenv("HOME");
 #endif
-                    }
-                    if (!path.empty()) {
+                            path = home + "/.config/clidecor/tux.png";
+                        }
                         std::cout << "\n\033[1;33mWarning: Very large images may ruin the alignment order if they exceed terminal height.\033[0m\n";
                         std::cout << "Do you want to proceed with this image? (y/n): ";
                         std::cout << "\033[?25h";
@@ -1374,8 +1362,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         if (ans == "y" || ans == "Y" || ans == "yes" || ans == "Yes") {
                             cfg.settings["image_path"] = path;
                         }
-                    } else {
-                        cfg.settings["image_path"] = "";
                     }
                     state = 0; selected = 0;
                 }

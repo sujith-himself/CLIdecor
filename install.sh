@@ -25,6 +25,11 @@ if [ ! -f "$INSTALL_DIR/config.conf" ]; then
     cp "$SCRIPT_DIR/config.conf" "$INSTALL_DIR/config.conf"
 fi
 
+# install default side art
+if [ -f "$SCRIPT_DIR/tux.png" ]; then
+    cp "$SCRIPT_DIR/tux.png" "$INSTALL_DIR/tux.png"
+fi
+
 chmod +x "$INSTALL_DIR/clidecor" 2>/dev/null || true
 
 # Make globally accessible for the user
