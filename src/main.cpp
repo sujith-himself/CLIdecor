@@ -566,16 +566,18 @@ std::string get_disk() {
     }
     return "";
 #else
-    struct statvfs stat;
-    if (statvfs("/", &stat) == 0) {
-        double total = (double)(stat.f_blocks * stat.f_frsize) / (1024.0 * 1024.0 * 1024.0);
-        double free = (double)(stat.f_bfree * stat.f_frsize) / (1024.0 * 1024.0 * 1024.0);
-        double used = total - free;
-        int pct = total > 0 ? (int)((used * 100) / total) : 0;
-        std::string fstype = exec("df -T / 2>/dev/null | awk 'NR==2 {print $2}'");
-        if (fstype.empty()) fstype = "ext4";
+    std::string disk_info = exec("df -B1 | awk '$1 ~ /^\\/dev\\// {print $2, $3, $5, $6; exit}'");
+    if (disk_info.empty()) {
+        disk_info = exec("df -B1 / | awk 'NR==2 {print $2, $3, $5, $6}'");
+    }
+    std::istringstream iss(trim(disk_info));
+    long long total = 0, used = 0;
+    std::string pcent, mount;
+    if (iss >> total >> used >> pcent >> mount) {
+        double total_gb = total / (1024.0 * 1024.0 * 1024.0);
+        double used_gb = used / (1024.0 * 1024.0 * 1024.0);
         char buf[128];
-        snprintf(buf, sizeof(buf), "(/): %.2f GiB / %.2f GiB (%d%%) - %s", used, total, pct, trim(fstype).c_str());
+        snprintf(buf, sizeof(buf), "(%s): %.2f GiB / %.2f GiB (%s)", mount.c_str(), used_gb, total_gb, pcent.c_str());
         return buf;
     }
     return "";
@@ -1078,32 +1080,16 @@ std::vector<std::string> generate_preview(Config& cfg) {
         text_block.push_back(ss.str());
     }
 
-    if (cfg.get_bool("show_palette", true)) {
+    std::string reminder = cfg.get_string("reminder_text", "");
+    if (!reminder.empty()) {
         text_block.push_back("");
-        std::string p1 = "", p2 = "";
-        std::vector<std::string> c1 = {"0;0;0", "170;0;0", "0;170;0", "170;170;0", "0;0;170", "170;0;170", "0;170;170", "170;170;170"};
-        std::vector<std::string> c2 = {"85;85;85", "255;85;85", "85;255;85", "255;255;85", "85;85;255", "255;85;255", "85;255;255", "255;255;255"};
-        for (const auto& c : c1) p1 += "\033[48;2;" + c + "m   \033[0m";
-        for (const auto& c : c2) p2 += "\033[48;2;" + c + "m   \033[0m";
-        text_block.push_back(p1);
-        text_block.push_back(p2);
-    }
-
-    std::string custom_txt = cfg.get_string("custom_text", "");
-    if (!custom_txt.empty()) {
-        std::vector<std::string> quotes;
-        std::stringstream ss(custom_txt);
-        std::string item;
-        while (std::getline(ss, item, '|')) {
-            if (!item.empty()) quotes.push_back(item);
+        std::string bg_color = AC;
+        size_t pos = bg_color.find("38;2;");
+        if (pos != std::string::npos) {
+            bg_color.replace(pos, 5, "48;2;");
         }
-        if (!quotes.empty()) {
-            static std::mt19937 rng(std::random_device{}());
-            std::uniform_int_distribution<size_t> dist(0, quotes.size() - 1);
-            std::string selected = quotes[dist(rng)];
-            text_block.push_back("");
-            text_block.push_back(AC + BOLD + selected + RESET);
-        }
+        std::string fg_color = "\033[1;37m"; 
+        text_block.push_back(bg_color + fg_color + "  " + reminder + "  " + RESET);
     }
 
     std::vector<std::string> logo_block;
