@@ -738,6 +738,29 @@ std::string get_git() {
     return branch + " \xe2\x9c\x93 (clean)";
 }
 
+static std::string get_ping() {
+#ifdef _WIN32
+    std::string out = exec("ping -n 1 8.8.8.8");
+    size_t pos = out.find("time=");
+    if (pos != std::string::npos) {
+        size_t end = out.find("ms", pos);
+        if (end != std::string::npos) {
+            return out.substr(pos + 5, end - pos - 5) + " ms";
+        }
+    }
+#else
+    std::string out = exec("ping -c 1 8.8.8.8 2>/dev/null");
+    size_t pos = out.find("time=");
+    if (pos != std::string::npos) {
+        size_t end = out.find(" ms", pos);
+        if (end != std::string::npos) {
+            return out.substr(pos + 5, end - pos - 5) + " ms";
+        }
+    }
+#endif
+    return "Timeout";
+}
+
 std::vector<ModuleDef> get_registry() {
     return {
         {"show_os", "OS:", true, [](const Config&) { return get_os(); }, false, nullptr},
@@ -771,6 +794,7 @@ std::vector<ModuleDef> get_registry() {
         {"show_battery", "Battery:", false, [](const Config&) { return get_battery(); }, false, nullptr},
         {"show_localip", "Local IP:", true, [](const Config&) { return get_local_ip(); }, false, nullptr},
         {"show_publicip", "Public IP:", false, [](const Config&) { return get_public_ip(); }, false, nullptr},
+        {"show_ping", "Ping (8.8.8.8):", false, [](const Config&) { return get_ping(); }, false, nullptr},
         {"show_locale", "Locale:", true, [](const Config&) { return get_locale(); }, false, nullptr},
         {"show_weather", "Weather:", false, [](const Config& cfg) { return get_weather(cfg.get_string("weather_location", "")); }, false, nullptr},
         {"show_git", "Git:", false, [](const Config&) { return get_git(); }, false, nullptr}
