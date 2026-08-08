@@ -789,6 +789,7 @@ struct RGB {
 
 static const std::string ASCII_RAMP = " .,:;+*?%#@";
 static const RGB TERM_BG = {0, 0, 0};
+static std::pair<std::string, std::string> chameleon_theme = {"#00FFFF", "#0055FF"};
 
 static bool is_bg(const RGB& p, int threshold = 20) {
     return std::abs((int)p.r - (int)TERM_BG.r) <= threshold &&
@@ -831,6 +832,9 @@ std::vector<std::string> render_image(
     if (base_width <= 0) base_width = 28;
     if (block_size < 1) block_size = 1;
 
+    long long total_r = 0, total_g = 0, total_b = 0;
+    int pixel_count = 0;
+
     float aspect = (float)orig_h / (float)orig_w;
     int rows_mult = (style == "ascii") ? 1 : 2;
     int base_h = (int)(base_width * aspect * 0.55f * rows_mult);
@@ -850,6 +854,32 @@ std::vector<std::string> render_image(
         }
     }
     stbi_image_free(data);
+
+
+    for (int y = 0; y < target_h; ++y) {
+        for (int x = 0; x < width_cols; ++x) {
+             if (!is_bg(grid[y][x])) {
+                 total_r += grid[y][x].r;
+                 total_g += grid[y][x].g;
+                 total_b += grid[y][x].b;
+                 pixel_count++;
+             }
+        }
+    }
+    if (pixel_count > 0) {
+        int avg_r = total_r / pixel_count;
+        int avg_g = total_g / pixel_count;
+        int avg_b = total_b / pixel_count;
+        
+        char hex[8];
+        snprintf(hex, sizeof(hex), "#%02X%02X%02X", avg_r, avg_g, avg_b);
+        int end_r = std::min(255, (int)(avg_r * 1.5));
+        int end_g = std::min(255, (int)(avg_g * 1.5));
+        int end_b = std::min(255, (int)(avg_b * 1.5));
+        char end_hex[8];
+        snprintf(end_hex, sizeof(end_hex), "#%02X%02X%02X", end_r, end_g, end_b);
+        chameleon_theme = {hex, end_hex};
+    }
 
     if (blur_radius > 0) {
         std::vector<std::vector<RGB>> blurred = grid;
@@ -909,6 +939,7 @@ std::vector<std::string> render_image(
             out_lines.push_back(ss.str());
         }
     }
+    stbi_image_free(data);
     return out_lines;
 }
 
@@ -941,6 +972,7 @@ static ThemeColors get_theme_colors(const std::string& theme) {
     if (theme == "nord") return {"#88C0D0", "#5E81AC"};
     if (theme == "fire") return {"#FF5555", "#FFB86C"};
     if (theme == "gold") return {"#F1FA8C", "#FFB86C"};
+    if (theme == "chameleon") return {ImgRender::chameleon_theme.first, ImgRender::chameleon_theme.second};
     return {"#00FFFF", "#0055FF"}; // default cyan to blue gradient
 }
 
@@ -1321,7 +1353,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     };
     
     std::vector<MenuItem> app_menu = {
-        {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold"}},
+        {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold", "chameleon"}},
         {"Layout", "layout", {"image_left", "image_right", "image_top", "image_bottom"}},
         {"Show Bars", "show_bars", {}}
     };
