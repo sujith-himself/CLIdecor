@@ -1735,6 +1735,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 }
 
 int main(int argc, char* argv[]) {
+    try {
     if (argc > 1) {
         std::string arg = argv[1];
         if (arg == "--help" || arg == "-h") {
@@ -1889,6 +1890,14 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> output = generate_preview(cfg);
     for (const auto& line : output) {
         std::cout << line << "\n";
+    }
+    } catch (const std::exception& e) {
+        std::cerr << "\n\033[1;31mCLI DECOR CRASHED:\033[0m " << e.what() << "\n";
+        std::cerr << "Please check your config.conf or report this issue on GitHub.\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "\n\033[1;31mCLI DECOR CRASHED with an unknown error.\033[0m\n";
+        return 1;
     }
 
     return 0;
