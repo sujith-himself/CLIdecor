@@ -27,6 +27,14 @@ fi
 
 chmod +x "$INSTALL_DIR/clidecor" 2>/dev/null || true
 
+# Make globally accessible for the user
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+if [ -f "$INSTALL_DIR/clidecor" ]; then
+    ln -sf "$INSTALL_DIR/clidecor" "$BIN_DIR/clidecor"
+    echo "Made 'clidecor' command globally accessible via $BIN_DIR"
+fi
+
 RC_FILE=""
 if [ -f "$HOME/.zshrc" ]; then
     RC_FILE="$HOME/.zshrc"
