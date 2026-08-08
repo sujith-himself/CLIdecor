@@ -566,7 +566,23 @@ std::string get_disk() {
     }
     return "";
 #else
-    std::string disk_info = exec("df -B1 / 2>/dev/null | awk 'NR==2 {print $2, $3, $5, $6}'");
+    std::string disk_info = exec("df -B1 | awk '$1 ~ /^\\/dev\\// && $1 !~ /loop/ && $1 !~ /sr/ {print $2, $3, $5, $6; exit}'");
+    if (disk_info.empty()) {
+        std::string lsblk = exec("lsblk -b -d -n -o SIZE,NAME,TYPE 2>/dev/null | awk '$3==\"disk\" && $2!~/^loop/ && $2!~/^sr/ {print $1, $2; exit}'");
+        if (!trim(lsblk).empty()) {
+            std::istringstream iss(trim(lsblk));
+            long long total = 0;
+            std::string name;
+            if (iss >> total >> name) {
+                double total_gb = total / (1024.0 * 1024.0 * 1024.0);
+                char buf[128];
+                snprintf(buf, sizeof(buf), "(/dev/%s): 0.00 GiB / %.2f GiB (0%%) - Unmounted", name.c_str(), total_gb);
+                return buf;
+            }
+        }
+        disk_info = exec("df -B1 / 2>/dev/null | awk 'NR==2 {print $2, $3, $5, $6}'");
+    }
+    
     std::istringstream iss(trim(disk_info));
     long long total = 0, used = 0;
     std::string pcent, mount;
@@ -574,7 +590,7 @@ std::string get_disk() {
         double total_gb = total / (1024.0 * 1024.0 * 1024.0);
         double used_gb = used / (1024.0 * 1024.0 * 1024.0);
         char buf[128];
-        snprintf(buf, sizeof(buf), "(/): %.2f GiB / %.2f GiB (%s)", used_gb, total_gb, pcent.c_str());
+        snprintf(buf, sizeof(buf), "(%s): %.2f GiB / %.2f GiB (%s)", mount.c_str(), used_gb, total_gb, pcent.c_str());
         return buf;
     }
     return "";
