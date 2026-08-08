@@ -1753,6 +1753,19 @@ int main(int argc, char* argv[]) {
             }
             #endif
             return 0;
+        } else if (arg == "-live") {
+            std::string config_path = Config::get_default_config_path();
+            Config cfg = Config::load_from_file(config_path);
+            std::cout << "\033[?25l"; // Hide cursor
+            while (true) {
+                std::cout << "\033[2J\033[H"; // Clear screen and move to home
+                std::vector<std::string> output = generate_preview(cfg);
+                for (const auto& line : output) {
+                    std::cout << line << "\n";
+                }
+                std::this_thread::sleep_for(std::chrono::seconds(1)); // 1 second updates
+            }
+            return 0;
         } else if (arg == "--desktop") {
             std::string config_path = Config::get_default_config_path();
             Config cfg = Config::load_from_file(config_path);
