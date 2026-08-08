@@ -852,8 +852,9 @@ std::vector<std::string> render_image(
     int max_h = 0
 ) {
     std::vector<std::string> out_lines;
-    int orig_w, orig_h, channels;
-    unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &channels, 0);
+    int orig_w, orig_h, orig_channels;
+    unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &orig_channels, 4);
+    int channels = 4;
     if (!data) return out_lines;
 
     if (base_width <= 0) base_width = 28;
