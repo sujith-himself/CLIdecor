@@ -1123,7 +1123,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string reminder = cfg.get_string("reminder_text", "");
     if (!reminder.empty()) {
         text_block.push_back("");
-        int max_width = 46;
+        int max_width = 36;
         std::vector<std::string> lines;
         std::string current_line = "";
         std::istringstream words(reminder);
