@@ -977,7 +977,6 @@ std::vector<std::string> render_image(
             out_lines.push_back(ss.str());
         }
     }
-    stbi_image_free(data);
     return out_lines;
 }
 
