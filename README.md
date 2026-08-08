@@ -29,7 +29,14 @@ A minimal, config-driven, sub-millisecond Neofetch alternative written in **C++1
 - **Cross-Platform (Linux, macOS, Windows)**: Uses native OS APIs (`Win32` on Windows, `procfs` on Linux, `sysctl` on macOS).
 - **Zero Python Dependencies**: Image logos (PNG, JPEG, BMP) are decoded and rendered natively in C++ using `stb_image.h`.
 - **Config-Driven & Fully Modular**: Every field is individually toggleable via `~/.config/clidecor/config.conf`.
+- **Terminal Flexbox Layout Engine**: Align images to the `Left`, `Right`, `Top`, or `Bottom` of the text!
 - **Truecolor & Pixel Art Engine**: Real truecolor half-block (`▀` / `▄`) rendering for high-resolution terminal image logos and custom pixel sizes.
+- **Background Desktop Widget Mode (`--desktop`)**: Pin the terminal output directly to your Windows Desktop background using Win32 hooks.
+- **Dynamic Image Theming (Chameleon Mode)**: Analyzes your custom image, extracts the dominant RGB clusters, and automatically applies a matching UI gradient theme!
+- **Advanced Text Blocks (Figlet)**: Internal 3x5 font rendering engine for massive, customized ASCII art headers.
+- **Live System Dashboard (`-live`)**: Persistent 1-second interval loops that track your CPU, RAM, and Network ping dynamically.
+- **One-Click Theme Sharing**: `clidecor export` and `clidecor import [STRING]` to share your exact layout configuration using base64 strings!
+- **Built-in Auto-Updater**: Run `clidecor update` to fetch the latest source from GitHub, compile, and install instantly.
 
 ---
 
