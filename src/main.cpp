@@ -795,7 +795,8 @@ std::vector<std::string> render_image(
     float scale_y = 1.0f,
     const std::string& style = "color",
     int block_size = 1,
-    int blur_radius = 0
+    int blur_radius = 0,
+    int max_h = 0
 ) {
     std::vector<std::string> out_lines;
     int orig_w, orig_h, channels;
@@ -804,12 +805,20 @@ std::vector<std::string> render_image(
 
     if (base_width <= 0) base_width = 28;
     if (block_size < 1) block_size = 1;
-    
-    int width_cols = std::max(1, (int)(base_width * scale_x));
 
     float aspect = (float)orig_h / (float)orig_w;
     int rows_mult = (style == "ascii") ? 1 : 2;
-    int target_h = std::max(2, (int)(base_width * aspect * 0.55f * rows_mult * scale_y));
+    int base_h = (int)(base_width * aspect * 0.55f * rows_mult);
+    
+    if (max_h > 0 && base_h > max_h) {
+        float shrink = (float)max_h / (float)base_h;
+        base_width = std::max(1, (int)(base_width * shrink));
+        base_h = max_h;
+    }
+    
+    int width_cols = std::max(1, (int)(base_width * scale_x));
+    int target_h = std::max(2, (int)(base_h * scale_y));
+    if (max_h > 0 && target_h > max_h) target_h = max_h;
     if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
 
     std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
@@ -1185,8 +1194,10 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int pad_x = cfg.get_int("image_pad_x", 0);
     int pad_y = cfg.get_int("image_pad_y", 0);
 
+    int max_h = text_block.size();
+
     if (!img_path.empty()) {
-        logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius);
+        logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
     }
 
     if (logo_block.empty()) {
@@ -1200,8 +1211,10 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
 
-    size_t max_lines = std::max(logo_block.size(), text_block.size());
-    size_t pad_logo = (max_lines - logo_block.size()) / 2;
+    size_t max_lines = text_block.size();
+    if (logo_block.size() > max_lines) {
+        max_lines = logo_block.size();
+    }
     size_t pad_text = (max_lines - text_block.size()) / 2;
 
     auto get_visual_len = [](const std::string& str) {
@@ -1224,32 +1237,27 @@ std::vector<std::string> generate_preview(Config& cfg) {
     }
     if (actual_logo_width == 0) actual_logo_width = img_width;
 
-    std::vector<std::string> new_logo(pad_logo, std::string(actual_logo_width, ' '));
-    new_logo.insert(new_logo.end(), logo_block.begin(), logo_block.end());
+    std::vector<std::string> new_logo(max_lines, std::string(actual_logo_width, ' '));
+    int start_y = (int)(max_lines - logo_block.size()) / 2 + pad_y;
     
-    if (pad_y > 0) {
-        new_logo.insert(new_logo.begin(), pad_y, std::string(actual_logo_width, ' '));
-    } else if (pad_y < 0) {
-        int rem = std::min((int)new_logo.size(), -pad_y);
-        new_logo.erase(new_logo.begin(), new_logo.begin() + rem);
+    for (size_t i = 0; i < logo_block.size(); ++i) {
+        int y = start_y + (int)i;
+        if (y >= 0 && y < (int)max_lines) {
+            new_logo[y] = logo_block[i];
+        }
     }
 
     std::vector<std::string> new_text(pad_text, "");
     new_text.insert(new_text.end(), text_block.begin(), text_block.end());
+    while (new_text.size() < max_lines) new_text.push_back("");
 
-    max_lines = std::max(new_logo.size(), new_text.size());
     std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
 
     for (size_t i = 0; i < max_lines; ++i) {
-        std::string l_line = "";
-        if (i < new_logo.size()) {
-            l_line = new_logo[i];
-            size_t vlen = get_visual_len(l_line);
-            if (vlen < actual_logo_width) {
-                l_line += std::string(actual_logo_width - vlen, ' ');
-            }
-        } else {
-            l_line = std::string(actual_logo_width, ' ');
+        std::string l_line = new_logo[i];
+        size_t vlen = get_visual_len(l_line);
+        if (vlen < actual_logo_width) {
+            l_line += std::string(actual_logo_width - vlen, ' ');
         }
         
         if (pad_x < 0) {
