@@ -1291,6 +1291,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int pixel_size = cfg.get_int("pixel_size", 1);
     int blur_radius = cfg.get_int("image_blur", 0);
     
+    std::cerr << "[DEBUG] fetching image scales...\n";
     float scale_x = 1.0f;
     try { scale_x = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
     
@@ -1302,30 +1303,39 @@ std::vector<std::string> generate_preview(Config& cfg) {
 
     int max_h = text_block.size();
 
+    std::cerr << "[DEBUG] checking img_path...\n";
     if (!img_path.empty()) {
+        std::cerr << "[DEBUG] render_image being called...\n";
         logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
     }
 
+    std::cerr << "[DEBUG] checking logo_block.empty()...\n";
     if (logo_block.empty()) {
         std::string header_text = cfg.get_string("header_text", "");
         if (cfg.get_string("header_type", "os") == "figlet" && !header_text.empty()) {
+            std::cerr << "[DEBUG] calling generate_figlet...\n";
             std::vector<std::string> fig_logo = generate_figlet(header_text);
             for (size_t i = 0; i < fig_logo.size(); ++i) {
                 std::string logo_AC = get_gradient_color(theme_colors, fig_logo.size(), i);
                 logo_block.push_back(logo_AC + fig_logo[i] + RESET);
             }
         } else {
+            std::cerr << "[DEBUG] getting os name for default logo...\n";
             std::string os = "";
             for (const auto& item : info_items) {
                 if (item.first == "OS:") os = item.second;
             }
+            std::cerr << "[DEBUG] calling get_os_logo with os=" << os << "...\n";
             std::vector<std::string> default_logo = get_os_logo(os, img_width);
+            std::cerr << "[DEBUG] get_os_logo returned.\n";
             for (size_t i = 0; i < default_logo.size(); ++i) {
                 std::string logo_AC = get_gradient_color(theme_colors, default_logo.size(), i);
                 logo_block.push_back(logo_AC + default_logo[i] + RESET);
             }
         }
     }
+    std::cerr << "[DEBUG] image/logo block finished.\n";
+
 
     size_t max_lines = text_block.size();
     size_t pad_text = 0;
