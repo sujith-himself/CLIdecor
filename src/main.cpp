@@ -1224,6 +1224,8 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         return len;
     };
 
+    std::cout << "\033[?1049h\033[?25l"; // Enter alternate screen buffer & hide cursor
+
     while (true) {
         std::vector<std::string> left_lines;
         left_lines.push_back("\033[1;36m  ██████╗ ██╗      ██╗    ██████╗  ███████╗ ██████╗  ██████╗  ██████╗ \033[0m");
@@ -1320,8 +1322,10 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     else if (selected == 3) {
                         std::cout << "\033[2J\033[H";
                         std::cout << "\033[1;36mEnter Custom Text (MOTD) [use | for random]: \033[0m";
+                        std::cout << "\033[?25h";
                         std::string txt;
                         std::getline(std::cin, txt);
+                        std::cout << "\033[?25l";
                         cfg.settings["custom_text"] = txt;
                     }
                     else if (selected == 4) break; // Save & Exit
@@ -1352,7 +1356,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     if (selected == 0) {
                         std::cout << "\033[2J\033[H";
                         std::cout << "\033[1;36mEnter image path (or leave empty for default ascii): \033[0m";
+                        std::cout << "\033[?25h";
                         std::getline(std::cin, path);
+                        std::cout << "\033[?25l";
                     } else if (selected == 1) {
                         std::cout << "\033[2J\033[H";
 #ifdef _WIN32
@@ -1369,15 +1375,19 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         } else {
                             std::cout << "\033[1;31mNo GUI file picker found (zenity/kdialog). Please install one!\033[0m\n\n";
                             std::cout << "\033[1;36mEnter image path manually (or leave empty for default ascii): \033[0m";
+                            std::cout << "\033[?25h";
                             std::getline(std::cin, path);
+                            std::cout << "\033[?25l";
                         }
 #endif
                     }
                     if (!path.empty()) {
                         std::cout << "\n\033[1;33mWarning: Very large images may ruin the alignment order if they exceed terminal height.\033[0m\n";
                         std::cout << "Do you want to proceed with this image? (y/n): ";
+                        std::cout << "\033[?25h";
                         std::string ans;
                         std::getline(std::cin, ans);
+                        std::cout << "\033[?25l";
                         if (ans == "y" || ans == "Y" || ans == "yes" || ans == "Yes") {
                             cfg.settings["image_path"] = path;
                         }
@@ -1390,8 +1400,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         }
     }
     
+    std::cout << "\033[?1049l\033[?25h"; // Exit alternate screen buffer & show cursor
     cfg.save_to_file(config_path);
-    std::cout << "\033[2J\033[H\033[1;32mSettings saved to " << config_path << "!\033[0m\n";
+    std::cout << "\033[1;32mSettings saved to " << config_path << "!\033[0m\n";
 }
 
 int main(int argc, char* argv[]) {
