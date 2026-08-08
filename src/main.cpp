@@ -159,6 +159,18 @@ struct Config {
 
 namespace SysInfo {
 
+struct ModuleDef {
+    std::string config_key;
+    std::string label;
+    bool default_enabled = true;
+    std::function<std::string(const Config&)> fetcher;
+    bool has_bar = false;
+    std::function<int()> bar_fetcher = nullptr;
+    std::string cached_value = "";
+    int cached_bar = 0;
+    bool is_cached = false;
+};
+
 std::string get_user_host() {
     std::string user = "";
     std::string host = "";
@@ -724,6 +736,45 @@ std::string get_git() {
     return branch + " \xe2\x9c\x93 (clean)";
 }
 
+std::vector<ModuleDef> get_registry() {
+    return {
+        {"show_os", "OS:", true, [](const Config&) { return get_os(); }, false, nullptr},
+        {"show_host", "Host:", true, [](const Config&) { return get_host(); }, false, nullptr},
+        {"show_kernel", "Kernel:", true, [](const Config&) { return get_kernel(); }, false, nullptr},
+        {"show_uptime", "Uptime:", true, [](const Config&) { return get_uptime(); }, false, nullptr},
+        {"show_packages", "Packages:", true, [](const Config&) { return get_packages(); }, false, nullptr},
+        {"show_shell", "Shell:", true, [](const Config&) { return get_shell(); }, false, nullptr},
+        {"show_terminal", "Terminal:", true, [](const Config&) { return get_terminal(); }, false, nullptr},
+        {"show_resolution", "Resolution:", true, [](const Config&) { return get_resolution(); }, false, nullptr},
+        {"show_cpu", "CPU:", true, [](const Config&) { return get_cpu(); }, true, get_cpu_usage},
+        {"show_gpu", "GPU:", true, [](const Config&) { return get_gpu(); }, false, nullptr},
+        {"show_memory", "Memory:", true, [](const Config&) {
+             auto mem = get_memory();
+             auto [used_mb, total_mb] = mem;
+             if (total_mb > 0) {
+                 if (total_mb >= 1024) {
+                     char buf[64]; snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", used_mb / 1024.0, total_mb / 1024.0);
+                     return std::string(buf);
+                 }
+                 return std::to_string(used_mb) + " MiB / " + std::to_string(total_mb) + " MiB";
+             }
+             return std::string("");
+         }, true, []() {
+             auto mem = get_memory();
+             if (std::get<1>(mem) > 0) return (int)((std::get<0>(mem) * 100) / std::get<1>(mem));
+             return 0;
+         }},
+        {"show_swap", "Swap:", true, [](const Config&) { return get_swap(); }, false, nullptr},
+        {"show_disk", "Disk:", true, [](const Config&) { return get_disk(); }, false, nullptr},
+        {"show_battery", "Battery:", false, [](const Config&) { return get_battery(); }, false, nullptr},
+        {"show_localip", "Local IP:", true, [](const Config&) { return get_local_ip(); }, false, nullptr},
+        {"show_publicip", "Public IP:", false, [](const Config&) { return get_public_ip(); }, false, nullptr},
+        {"show_locale", "Locale:", true, [](const Config&) { return get_locale(); }, false, nullptr},
+        {"show_weather", "Weather:", false, [](const Config& cfg) { return get_weather(cfg.get_string("weather_location", "")); }, false, nullptr},
+        {"show_git", "Git:", false, [](const Config&) { return get_git(); }, false, nullptr}
+    };
+}
+
 } // namespace SysInfo
 
 // ─── Image Rendering Engine ──────────────────────────────────────────────────
@@ -1013,100 +1064,24 @@ std::vector<std::string> generate_preview(Config& cfg) {
     static std::string user_host = SysInfo::get_user_host();
     std::vector<std::pair<std::string, std::string>> info_items;
 
-    if (cfg.get_bool("show_os", true)) {
-        static std::string os = SysInfo::get_os();
-        if (!os.empty()) info_items.push_back({"OS:", os});
-    }
-    if (cfg.get_bool("show_host", true)) {
-        static std::string host = SysInfo::get_host();
-        if (!host.empty()) info_items.push_back({"Host:", host});
-    }
-    if (cfg.get_bool("show_kernel", true)) {
-        static std::string kernel = SysInfo::get_kernel();
-        if (!kernel.empty()) info_items.push_back({"Kernel:", kernel});
-    }
-    if (cfg.get_bool("show_uptime", true)) {
-        static std::string uptime = SysInfo::get_uptime();
-        if (!uptime.empty()) info_items.push_back({"Uptime:", uptime});
-    }
-    if (cfg.get_bool("show_packages", true)) {
-        static std::string pkgs = SysInfo::get_packages();
-        if (!pkgs.empty()) info_items.push_back({"Packages:", pkgs});
-    }
-    if (cfg.get_bool("show_shell", true)) {
-        static std::string sh = SysInfo::get_shell();
-        if (!sh.empty()) info_items.push_back({"Shell:", sh});
-    }
-    if (cfg.get_bool("show_terminal", true)) {
-        static std::string term = SysInfo::get_terminal();
-        if (!term.empty()) info_items.push_back({"Terminal:", term});
-    }
-    if (cfg.get_bool("show_resolution", true)) {
-        static std::string res = SysInfo::get_resolution();
-        if (!res.empty()) info_items.push_back({"Resolution:", res});
-    }
-    if (cfg.get_bool("show_cpu", true)) {
-        static std::string cpu = SysInfo::get_cpu();
-        static int pct = SysInfo::get_cpu_usage();
-        if (!cpu.empty()) {
-            std::string cpu_str = cpu;
-            if (cfg.get_bool("show_bars", true) && cfg.get_bool("show_cpu_bar", true)) {
-                cpu_str += " " + build_bar(pct, AC, VAL_COLOR);
+    static std::vector<SysInfo::ModuleDef> registry = SysInfo::get_registry();
+    for (auto& mod : registry) {
+        if (cfg.get_bool(mod.config_key, mod.default_enabled)) {
+            if (!mod.is_cached) {
+                mod.cached_value = mod.fetcher(cfg);
+                if (mod.has_bar && mod.bar_fetcher) {
+                    mod.cached_bar = mod.bar_fetcher();
+                }
+                mod.is_cached = true;
             }
-            info_items.push_back({"CPU:", cpu_str});
+            if (!mod.cached_value.empty()) {
+                std::string val_str = mod.cached_value;
+                if (mod.has_bar && cfg.get_bool("show_bars", true) && cfg.get_bool(mod.config_key + "_bar", true)) {
+                    val_str += " " + build_bar(mod.cached_bar, AC, VAL_COLOR);
+                }
+                info_items.push_back({mod.label, val_str});
+            }
         }
-    }
-    if (cfg.get_bool("show_gpu", true)) {
-        static std::string gpu = SysInfo::get_gpu();
-        if (!gpu.empty()) info_items.push_back({"GPU:", gpu});
-    }
-    if (cfg.get_bool("show_memory", true)) {
-        static auto mem = SysInfo::get_memory();
-        auto [used_mb, total_mb] = mem;
-        if (total_mb > 0) {
-            int pct = (int)((used_mb * 100) / total_mb);
-            std::string mem_str;
-            if (total_mb >= 1024) {
-                char buf[64];
-                snprintf(buf, sizeof(buf), "%.2f GiB / %.2f GiB", used_mb / 1024.0, total_mb / 1024.0);
-                mem_str = buf;
-            } else {
-                mem_str = std::to_string(used_mb) + " MiB / " + std::to_string(total_mb) + " MiB";
-            }
-            if (cfg.get_bool("show_bars", true)) {
-                mem_str += " " + build_bar(pct, AC, VAL_COLOR);
-            }
-            info_items.push_back({"Memory:", mem_str});
-        }
-    }
-    if (cfg.get_bool("show_swap", true)) {
-        static std::string swap_str = SysInfo::get_swap();
-        if (!swap_str.empty()) info_items.push_back({"Swap:", swap_str});
-    }
-    if (cfg.get_bool("show_disk", true)) {
-        static std::string disk = SysInfo::get_disk();
-        if (!disk.empty()) info_items.push_back({"Disk:", disk});
-    }
-    if (cfg.get_bool("show_battery", false)) {
-        static std::string batt = SysInfo::get_battery();
-        if (!batt.empty()) info_items.push_back({"Battery:", batt});
-    }
-    if (cfg.get_bool("show_localip", true)) {
-        static std::string lip = SysInfo::get_local_ip();
-        if (!lip.empty()) info_items.push_back({"Local IP:", lip});
-    }
-    if (cfg.get_bool("show_publicip", false)) {
-        static std::string pip = SysInfo::get_public_ip();
-        if (!pip.empty()) info_items.push_back({"Public IP:", pip});
-    }
-    if (cfg.get_bool("show_locale", true)) {
-        static std::string loc = SysInfo::get_locale();
-        if (!loc.empty()) info_items.push_back({"Locale:", loc});
-    }
-    if (cfg.get_bool("show_weather", false)) {
-        std::string loc = cfg.get_string("weather_location", "");
-        std::string wtr = SysInfo::get_weather(loc);
-        if (!wtr.empty()) info_items.push_back({"Weather:", wtr});
     }
 
     std::vector<std::string> text_block;
