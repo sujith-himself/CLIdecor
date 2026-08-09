@@ -364,13 +364,34 @@ std::string get_packages() {
         std::string res = exec("rpm -qa 2>/dev/null | wc -l");
         if (!res.empty() && res != "0") pkgs.push_back(res + " (rpm)");
     }
-    if (access("/usr/bin/flatpak", F_OK) == 0) {
-        std::string res = exec("flatpak list 2>/dev/null | wc -l");
-        if (!res.empty() && res != "0") pkgs.push_back(res + " (flatpak)");
+    // Flatpak
+    int flatpak_count = 0;
+    if (std::filesystem::exists("/var/lib/flatpak/app")) {
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator("/var/lib/flatpak/app")) {
+                if (entry.is_directory()) flatpak_count++;
+            }
+        } catch (...) {}
     }
-    if (access("/usr/bin/snap", F_OK) == 0) {
-        std::string res = exec("snap list 2>/dev/null | tail -n +2 | wc -l");
-        if (!res.empty() && res != "0") pkgs.push_back(trim(res) + " (snap)");
+    std::string home_dir = getenv("HOME") ? getenv("HOME") : "";
+    if (!home_dir.empty() && std::filesystem::exists(home_dir + "/.local/share/flatpak/app")) {
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator(home_dir + "/.local/share/flatpak/app")) {
+                if (entry.is_directory()) flatpak_count++;
+            }
+        } catch (...) {}
+    }
+    if (flatpak_count > 0) pkgs.push_back(std::to_string(flatpak_count) + " (flatpak)");
+
+    // Snap
+    if (std::filesystem::exists("/var/lib/snapd/snaps")) {
+        int snap_count = 0;
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator("/var/lib/snapd/snaps")) {
+                if (entry.path().extension() == ".snap") snap_count++;
+            }
+        } catch (...) {}
+        if (snap_count > 0) pkgs.push_back(std::to_string(snap_count) + " (snap)");
     }
     if (pkgs.empty()) return "";
     std::string out = "";
