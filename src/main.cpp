@@ -42,6 +42,7 @@
 #include <functional>
 #include <sys/stat.h>
 #include <csignal>
+#include <filesystem>
 
 void handle_signal(int sig) {
     std::cout << "\033[?1049l";
@@ -329,13 +330,37 @@ std::string get_packages() {
     return "";
 #else
     std::vector<std::string> pkgs;
-    if (access("/usr/bin/dpkg-query", F_OK) == 0) {
+    
+    // Debian / Ubuntu (dpkg)
+    int dpkg_count = 0;
+    std::ifstream dpkg_f("/var/lib/dpkg/status");
+    if (dpkg_f.is_open()) {
+        std::string line;
+        while (std::getline(dpkg_f, line)) {
+            if (line.rfind("Status: install ok installed", 0) == 0) dpkg_count++;
+        }
+        if (dpkg_count > 0) pkgs.push_back(std::to_string(dpkg_count) + " (dpkg)");
+    } else if (access("/usr/bin/dpkg-query", F_OK) == 0) {
         std::string res = exec("dpkg-query -f '.\\n' -W 2>/dev/null | wc -l");
-        if (!res.empty() && res != "0") pkgs.push_back(res + " (dpkg)");
+        if (!res.empty() && res != "0") pkgs.push_back(trim(res) + " (dpkg)");
+    }
+    
+    // Arch Linux (pacman)
+    if (std::filesystem::exists("/var/lib/pacman/local")) {
+        int pacman_count = 0;
+        try {
+            for (const auto& entry : std::filesystem::directory_iterator("/var/lib/pacman/local")) {
+                if (entry.is_directory()) pacman_count++;
+            }
+            if (pacman_count > 0) pkgs.push_back(std::to_string(pacman_count) + " (pacman)");
+        } catch (...) {}
     } else if (access("/usr/bin/pacman", F_OK) == 0) {
         std::string res = exec("pacman -Qq 2>/dev/null | wc -l");
-        if (!res.empty() && res != "0") pkgs.push_back(res + " (pacman)");
-    } else if (access("/usr/bin/rpm", F_OK) == 0) {
+        if (!res.empty() && res != "0") pkgs.push_back(trim(res) + " (pacman)");
+    }
+    
+    // Fedora / RHEL (rpm)
+    if (access("/usr/bin/rpm", F_OK) == 0) {
         std::string res = exec("rpm -qa 2>/dev/null | wc -l");
         if (!res.empty() && res != "0") pkgs.push_back(res + " (rpm)");
     }
@@ -1678,6 +1703,10 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
                 left_lines.push_back(prefix + custom_txt_opts[i] + "\033[0m");
             }
+            left_lines.push_back("");
+            left_lines.push_back(AC + "=== Recommended Settings ===\033[0m");
+            left_lines.push_back(AC + "Width (characters): 30\033[0m");
+            left_lines.push_back(AC + "Aspect Ratio: 1.5\033[0m");
         }
         else if (state == 4) { // Live Resize & Align
             left_lines.push_back("");
