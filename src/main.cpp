@@ -854,14 +854,11 @@ std::vector<std::string> render_image(
     std::vector<std::string> out_lines;
     int orig_w, orig_h, orig_channels;
     
-    std::cerr << "[DEBUG] render_image: calling stbi_load on path '" << path << "'\n";
     unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &orig_channels, 4);
-    std::cerr << "[DEBUG] render_image: stbi_load returned " << (void*)data << "\n";
     
     int channels = 4;
     if (!data) return out_lines;
 
-    std::cerr << "[DEBUG] render_image: calculating dimensions...\n";
     if (base_width <= 0) base_width = 28;
     if (block_size < 1) block_size = 1;
 
@@ -876,10 +873,8 @@ std::vector<std::string> render_image(
     int target_h = std::max(2, (int)(base_h * scale_y));
     if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
 
-    std::cerr << "[DEBUG] render_image: allocating grid " << width_cols << "x" << target_h << "...\n";
     std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
     
-    std::cerr << "[DEBUG] render_image: sampling data...\n";
     for (int y = 0; y < target_h; ++y) {
         for (int x = 0; x < width_cols; ++x) {
             int effective_x = (x / block_size) * block_size;
@@ -889,9 +884,7 @@ std::vector<std::string> render_image(
             grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
         }
     }
-    std::cerr << "[DEBUG] render_image: freeing data...\n";
     stbi_image_free(data);
-    std::cerr << "[DEBUG] render_image: data freed. generating lines...\n";
 
 
     for (int y = 0; y < target_h; ++y) {
@@ -1197,7 +1190,6 @@ struct MenuItem {
 };
 
 std::vector<std::string> generate_preview(Config& cfg) {
-    std::cerr << "[DEBUG] generate_preview: Start.\n";
     std::vector<std::string> out;
     std::string theme = cfg.get_string("theme", "default");
     ThemeColors theme_colors = get_theme_colors(theme);
@@ -1207,14 +1199,12 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string RESET = "\033[0m";
     std::string VAL_COLOR = "\033[38;2;220;220;220m"; // Soft white for values
 
-    std::cerr << "[DEBUG] generate_preview: fetching module data...\n";
     static std::string user_host = SysInfo::get_user_host();
     std::vector<std::pair<std::string, std::string>> info_items;
 
     static std::vector<SysInfo::ModuleDef> registry = SysInfo::get_registry();
     for (auto& mod : registry) {
         if (cfg.get_bool(mod.config_key, mod.default_enabled)) {
-            std::cerr << "[DEBUG]   -> Fetching " << mod.config_key << "\n";
             if (!mod.is_cached) {
                 mod.cached_value = mod.fetcher(cfg);
                 if (mod.has_bar && mod.bar_fetcher) {
@@ -1232,7 +1222,6 @@ std::vector<std::string> generate_preview(Config& cfg) {
             }
         }
     }
-    std::cerr << "[DEBUG] generate_preview: module data fetched.\n";
 
     std::vector<std::string> text_block;
     
@@ -1293,7 +1282,6 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
 
-    std::cerr << "[DEBUG] generate_preview: rendering image/logo block.\n";
     std::vector<std::string> logo_block;
     std::string img_path = cfg.get_string("image_path", "");
     int img_width = cfg.get_int("image_width", 28);
@@ -1301,7 +1289,6 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int pixel_size = cfg.get_int("pixel_size", 1);
     int blur_radius = cfg.get_int("image_blur", 0);
     
-    std::cerr << "[DEBUG] fetching image scales...\n";
     float scale_x = 1.0f;
     try { scale_x = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
     
@@ -1313,38 +1300,30 @@ std::vector<std::string> generate_preview(Config& cfg) {
 
     int max_h = text_block.size();
 
-    std::cerr << "[DEBUG] checking img_path...\n";
     if (!img_path.empty()) {
-        std::cerr << "[DEBUG] render_image being called...\n";
         logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
     }
 
-    std::cerr << "[DEBUG] checking logo_block.empty()...\n";
     if (logo_block.empty()) {
         std::string header_text = cfg.get_string("header_text", "");
         if (cfg.get_string("header_type", "os") == "figlet" && !header_text.empty()) {
-            std::cerr << "[DEBUG] calling generate_figlet...\n";
             std::vector<std::string> fig_logo = generate_figlet(header_text);
             for (size_t i = 0; i < fig_logo.size(); ++i) {
                 std::string logo_AC = get_gradient_color(theme_colors, fig_logo.size(), i);
                 logo_block.push_back(logo_AC + fig_logo[i] + RESET);
             }
         } else {
-            std::cerr << "[DEBUG] getting os name for default logo...\n";
             std::string os = "";
             for (const auto& item : info_items) {
                 if (item.first == "OS:") os = item.second;
             }
-            std::cerr << "[DEBUG] calling get_os_logo with os=" << os << "...\n";
             std::vector<std::string> default_logo = get_os_logo(os, img_width);
-            std::cerr << "[DEBUG] get_os_logo returned.\n";
             for (size_t i = 0; i < default_logo.size(); ++i) {
                 std::string logo_AC = get_gradient_color(theme_colors, default_logo.size(), i);
                 logo_block.push_back(logo_AC + default_logo[i] + RESET);
             }
         }
     }
-    std::cerr << "[DEBUG] image/logo block finished.\n";
 
 
     size_t max_lines = text_block.size();
@@ -1762,7 +1741,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 }
 
 int main(int argc, char* argv[]) {
-    std::cerr << "[DEBUG] Entered main function.\n";
     try {
     if (argc > 1) {
         std::string arg = argv[1];
@@ -1912,20 +1890,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cerr << "[DEBUG] Loading config...\n";
     std::string config_path = Config::get_default_config_path();
     Config cfg = Config::load_from_file(config_path);
-    std::cerr << "[DEBUG] Config loaded.\n";
 
-    std::cerr << "[DEBUG] Calling generate_preview...\n";
     std::vector<std::string> output = generate_preview(cfg);
-    std::cerr << "[DEBUG] generate_preview finished.\n";
     
-    std::cerr << "[DEBUG] Printing output...\n";
     for (const auto& line : output) {
         std::cout << line << "\n";
     }
-    std::cerr << "[DEBUG] Exiting main.\n";
     } catch (const std::exception& e) {
         std::cerr << "\n\033[1;31mCLI DECOR CRASHED:\033[0m " << e.what() << "\n";
         std::cerr << "Please check your config.conf or report this issue on GitHub.\n";
