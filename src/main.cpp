@@ -1884,6 +1884,10 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     std::cout.flush();
     std::cout << "\033[?25h\033[?1000l\033[?1007l\033[0m"; // Show cursor, disable mouse, reset formatting
     std::cout.flush();
+#ifndef _WIN32
+    int res = system("stty sane 2>/dev/null");
+    (void)res;
+#endif
     cfg.save_to_file(config_path);
     std::cout << "\033[1;32mSettings saved to " << config_path << "!\033[0m\n";
     std::cout.flush();
