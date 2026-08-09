@@ -866,25 +866,33 @@ std::vector<std::string> render_image(
     int pixel_count = 0;
 
     float aspect = (float)orig_h / (float)orig_w;
-    int rows_mult = (style == "ascii") ? 1 : 2;
+    // For quarter-block we sample at 2x horizontal resolution
+    bool is_quarter = (style == "ascii");
+    int rows_mult = 2; // always use 2-row height sampling
     int base_h = (int)(base_width * aspect * 0.55f * rows_mult);
     
     int width_cols = std::max(1, (int)(base_width * scale_x));
     int target_h = std::max(2, (int)(base_h * scale_y));
-    if (rows_mult == 2 && target_h % 2 != 0) target_h += 1;
+    if (target_h % 2 != 0) target_h += 1;
 
-    std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
+    // For quarter-block: sample at 2x horizontal resolution so each output
+    // character represents a 2-wide × 2-tall block of real image pixels.
+    int sample_w = is_quarter ? (width_cols * 2) : width_cols;
+
+    std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(sample_w));
     
     for (int y = 0; y < target_h; ++y) {
-        for (int x = 0; x < width_cols; ++x) {
+        for (int x = 0; x < sample_w; ++x) {
             int effective_x = (x / block_size) * block_size;
             int effective_y = (y / block_size) * block_size;
-            float rx = ((float)effective_x / (float)width_cols) * orig_w;
+            float rx = ((float)effective_x / (float)sample_w) * orig_w;
             float ry = ((float)effective_y / (float)target_h) * orig_h;
             grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
         }
     }
     stbi_image_free(data);
+
+
 
 
     for (int y = 0; y < target_h; ++y) {
@@ -937,35 +945,97 @@ std::vector<std::string> render_image(
         }
     }
 
-    if (style == "ascii") {
-        // Solid filled block rendering — same technique as CLIDECOR header
-        // Uses █ (U+2588) with exact TrueColor background+foreground so it looks
-        // like a solid pixel grid rather than ugly sparse dot/hash characters.
+    if (is_quarter) {
+        // Quarter-block rendering: each terminal character represents a 2×2 pixel block.
+        // We use the 16 Unicode quadrant block characters to encode which sub-pixels are
+        // "foreground" vs "background", then paint FG+BG with exact TrueColor RGB values.
+        // Result: 2× more horizontal detail than half-block rendering.
+        
+        // Quarter-block chars indexed by 4-bit pattern: bit3=TL, bit2=TR, bit1=BL, bit0=BR
+        // UTF-8 sequences for each of the 16 patterns
+        static const char* QB[16] = {
+            " ",                        // 0000 - empty
+            "\xe2\x96\x97",            // 0001 - ▗ lower-right
+            "\xe2\x96\x96",            // 0010 - ▖ lower-left
+            "\xe2\x96\x84",            // 0011 - ▄ lower half
+            "\xe2\x96\x9d",            // 0100 - ▝ upper-right
+            "\xe2\x96\x90",            // 0101 - ▐ right half
+            "\xe2\x96\x9e",            // 0110 - ▞ diagonal
+            "\xe2\x96\x9f",            // 0111 - ▟ lower+upper-right
+            "\xe2\x96\x98",            // 1000 - ▘ upper-left
+            "\xe2\x96\x9a",            // 1001 - ▚ diagonal
+            "\xe2\x96\x8c",            // 1010 - ▌ left half
+            "\xe2\x96\x99",            // 1011 - ▙ lower+upper-left
+            "\xe2\x96\x80",            // 1100 - ▀ upper half
+            "\xe2\x96\x9c",            // 1101 - ▜ upper+lower-right (note: ▜)
+            "\xe2\x96\x9b",            // 1110 - ▛ upper+lower-left
+            "\xe2\x96\x88",            // 1111 - █ full block
+        };
+
         for (int y = 0; y < target_h; y += 2) {
             std::ostringstream line;
-            for (int x = 0; x < width_cols; ++x) {
-                RGB top = grid[y][x];
-                RGB bot = (y + 1 < target_h) ? grid[y + 1][x] : top;
-                bool top_bg = is_bg(top);
-                bool bot_bg = is_bg(bot);
-                if (top_bg && bot_bg) {
+            // Process 2 image-pixel columns at a time → 1 output character
+            for (int x = 0; x < width_cols * 2; x += 2) {
+                // 4 pixel corners of this 2×2 block
+                RGB tl = grid[y][x];
+                RGB tr = grid[y][x + 1];
+                RGB bl = (y + 1 < target_h) ? grid[y + 1][x]     : tl;
+                RGB br = (y + 1 < target_h) ? grid[y + 1][x + 1] : tr;
+
+                bool tl_bg = is_bg(tl), tr_bg = is_bg(tr);
+                bool bl_bg = is_bg(bl), br_bg = is_bg(br);
+
+                if (tl_bg && tr_bg && bl_bg && br_bg) {
                     line << " ";
-                } else if (top_bg) {
-                    // bottom half filled
-                    line << "\033[38;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x84\033[0m";
-                } else if (bot_bg) {
-                    // top half filled
-                    line << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m\xe2\x96\x80\033[0m";
-                } else {
-                    // both rows filled — use solid block with top fg + bot bg
-                    line << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m"
-                         << "\033[48;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m"
-                         << "\xe2\x96\x80\033[0m";
+                    continue;
                 }
+
+                // Find average "foreground" color (non-bg pixels) and 
+                // average "background" color (bg pixels or darker pixels)
+                // Strategy: compute mean of all 4, then split above/below
+                int avg_r = ((int)tl.r + tr.r + bl.r + br.r) / 4;
+                int avg_g = ((int)tl.g + tr.g + bl.g + br.g) / 4;
+                int avg_b = ((int)tl.b + tr.b + bl.b + br.b) / 4;
+
+                // Each pixel is "fg" if its brightness >= average brightness
+                float avg_bright = (avg_r * 0.299f + avg_g * 0.587f + avg_b * 0.114f);
+                auto is_fg = [&](const RGB& p, bool bg) -> bool {
+                    if (bg) return false;
+                    float b = p.r * 0.299f + p.g * 0.587f + p.b * 0.114f;
+                    return b >= avg_bright;
+                };
+
+                bool tl_fg = is_fg(tl, tl_bg);
+                bool tr_fg = is_fg(tr, tr_bg);
+                bool bl_fg = is_fg(bl, bl_bg);
+                bool br_fg = is_fg(br, br_bg);
+
+                // Build the 4-bit pattern (TL=bit3, TR=bit2, BL=bit1, BR=bit0)
+                int pattern = (tl_fg ? 8 : 0) | (tr_fg ? 4 : 0) | (bl_fg ? 2 : 0) | (br_fg ? 1 : 0);
+
+                // Average the fg and bg colors separately for maximum color accuracy
+                int fg_r = 0, fg_g = 0, fg_b = 0, fg_cnt = 0;
+                int bg_r = 0, bg_g = 0, bg_b = 0, bg_cnt = 0;
+                auto accum = [&](const RGB& p, bool fg) {
+                    if (fg) { fg_r += p.r; fg_g += p.g; fg_b += p.b; fg_cnt++; }
+                    else     { bg_r += p.r; bg_g += p.g; bg_b += p.b; bg_cnt++; }
+                };
+                accum(tl, tl_fg); accum(tr, tr_fg); accum(bl, bl_fg); accum(br, br_fg);
+
+                if (fg_cnt == 0) { fg_r = avg_r; fg_g = avg_g; fg_b = avg_b; fg_cnt = 1; }
+                if (bg_cnt == 0) { bg_r = 0; bg_g = 0; bg_b = 0; bg_cnt = 1; }
+                
+                int fR = fg_r/fg_cnt, fG = fg_g/fg_cnt, fB = fg_b/fg_cnt;
+                int bR = bg_r/bg_cnt, bG = bg_g/bg_cnt, bB = bg_b/bg_cnt;
+
+                line << "\033[38;2;" << fR << ";" << fG << ";" << fB << "m"
+                     << "\033[48;2;" << bR << ";" << bG << ";" << bB << "m"
+                     << QB[pattern] << "\033[0m";
             }
             out_lines.push_back(line.str());
         }
     } else {
+        // Standard half-block (▀/▄) rendering — default "color" style
         for (int y = 0; y < target_h; y += 2) {
             std::ostringstream ss;
             for (int x = 0; x < width_cols; ++x) {
