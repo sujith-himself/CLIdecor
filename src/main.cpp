@@ -912,27 +912,29 @@ std::vector<std::string> render_image(
         chameleon_theme = {hex, end_hex};
     }
 
-    if (blur_radius > 0) {
-        int actual_radius = (blur_radius + 2) / 3; // 1-3=1, 4-6=2, 7-9=3, 10=4
-        std::vector<std::vector<RGB>> blurred = grid;
-        for (int y = 0; y < target_h; ++y) {
-            for (int x = 0; x < width_cols; ++x) {
-                long long r_tot = 0, g_tot = 0, b_tot = 0;
-                int count = 0;
-                for (int dy = -actual_radius; dy <= actual_radius; ++dy) {
-                    for (int dx = -actual_radius; dx <= actual_radius; ++dx) {
-                        int ny = std::clamp(y + dy, 0, target_h - 1);
-                        int nx = std::clamp(x + dx, 0, width_cols - 1);
-                        r_tot += grid[ny][nx].r;
-                        g_tot += grid[ny][nx].g;
-                        b_tot += grid[ny][nx].b;
-                        count++;
+    if (blur_radius >= 0) {
+        int actual_radius = (10 - blur_radius + 2) / 3; // 10->0, 7-9->1, 4-6->2, 1-3->3, 0->4
+        if (actual_radius > 0) {
+            std::vector<std::vector<RGB>> blurred = grid;
+            for (int y = 0; y < target_h; ++y) {
+                for (int x = 0; x < width_cols; ++x) {
+                    long long r_tot = 0, g_tot = 0, b_tot = 0;
+                    int count = 0;
+                    for (int dy = -actual_radius; dy <= actual_radius; ++dy) {
+                        for (int dx = -actual_radius; dx <= actual_radius; ++dx) {
+                            int ny = std::clamp(y + dy, 0, target_h - 1);
+                            int nx = std::clamp(x + dx, 0, width_cols - 1);
+                            r_tot += grid[ny][nx].r;
+                            g_tot += grid[ny][nx].g;
+                            b_tot += grid[ny][nx].b;
+                            count++;
+                        }
                     }
+                    blurred[y][x] = {(unsigned char)(r_tot / count), (unsigned char)(g_tot / count), (unsigned char)(b_tot / count)};
                 }
-                blurred[y][x] = {(unsigned char)(r_tot / count), (unsigned char)(g_tot / count), (unsigned char)(b_tot / count)};
             }
+            grid = blurred;
         }
-        grid = blurred;
     }
 
     if (style == "ascii") {
@@ -1791,7 +1793,16 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "-p" || arg == "--preview") {
             // Fall through to the preview generation at the bottom of main
-        } else if (arg == "update") {
+        } else if (arg == "--update" || arg == "update") {
+            std::cout << "\033[1;33mAre you sure you want to update CLIdecor to the latest version?\033[0m\n";
+            std::cout << "Repository: https://github.com/sujith-himself/CLIdecor\n";
+            std::cout << "[y/N]: ";
+            std::string ans;
+            std::getline(std::cin, ans);
+            if (ans != "y" && ans != "Y") {
+                std::cout << "Update cancelled.\n";
+                return 0;
+            }
             std::cout << "\033[1;36m[\xe2\x86\x93] Fetching latest CLIdecor from GitHub...\033[0m\n";
             #ifdef _WIN32
             int res = system("git clone https://github.com/sujith-himself/CLIdecor.git %TEMP%\\clidecor_update 2>nul");
