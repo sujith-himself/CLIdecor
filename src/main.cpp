@@ -1398,8 +1398,23 @@ std::vector<std::string> generate_preview(Config& cfg) {
 
     int max_h = text_block.size();
 
+    std::string ascii_path = cfg.get_string("ascii_path", "");
+
     if (!img_path.empty()) {
         logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
+    } else if (!ascii_path.empty()) {
+        std::ifstream af(ascii_path);
+        if (af.is_open()) {
+            std::string line;
+            std::vector<std::string> raw_ascii;
+            while (std::getline(af, line)) {
+                raw_ascii.push_back(line);
+            }
+            for (size_t i = 0; i < raw_ascii.size(); ++i) {
+                std::string logo_AC = get_gradient_color(theme_colors, raw_ascii.size(), i);
+                logo_block.push_back(logo_AC + raw_ascii[i] + RESET);
+            }
+        }
     }
 
     if (logo_block.empty()) {
@@ -1572,12 +1587,17 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         };
         std::vector<std::string> side_art_opts = {
             "1. ASCII Art (Default)",
-            "2. Custom Image Art"
+            "2. Custom Image Art",
+            "3. Custom ASCII Text File"
         };
         std::vector<std::string> custom_img_opts = {
             "1. Set Image Path Manually",
             "2. Choose Image (File Manager)",
             "3. Live Resize & Align Image"
+        };
+        std::vector<std::string> custom_txt_opts = {
+            "1. Set ASCII Text File Path",
+            "2. Generator URL (asciiart.website)"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1622,6 +1642,12 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 } else {
                     left_lines.push_back(prefix + custom_img_opts[i] + "\033[0m");
                 }
+            }
+        }
+        else if (state == 7) { // Custom ASCII Text File
+            for (size_t i = 0; i < custom_txt_opts.size(); ++i) {
+                std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
+                left_lines.push_back(prefix + custom_txt_opts[i] + "\033[0m");
             }
         }
         else if (state == 4) { // Live Resize & Align
@@ -1697,11 +1723,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             continue;
         }
         if (key == 1001) { // UP
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()))));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 7 ? custom_txt_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())))));
             selected = (selected > 0) ? selected - 1 : s_max - 1;
         }
         if (key == 1002) { // DOWN
-            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()))));
+            int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 7 ? custom_txt_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size())))));
             selected = (selected + 1) % s_max;
         }
         
@@ -1751,9 +1777,14 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 if (key == 13 || key == 10) {
                     if (selected == 0) {
                         cfg.settings["image_path"] = "";
+                        cfg.settings["ascii_path"] = "";
                         state = 0; selected = 0;
                     } else if (selected == 1) {
+                        cfg.settings["ascii_path"] = "";
                         state = 6; selected = 0;
+                    } else if (selected == 2) {
+                        cfg.settings["image_path"] = "";
+                        state = 7; selected = 0;
                     }
                 }
             }
@@ -1794,6 +1825,28 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         }
                     }
                     if (state == 6) { state = 3; selected = 1; }
+                }
+            }
+            else if (state == 7) { // Custom ASCII Text File
+                if (key == 13 || key == 10) {
+                    if (selected == 0) {
+                        std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
+                        std::cout << "\033[1;36mEnter path to ASCII text file: \033[0m";
+                        std::cout << "\033[?25h";
+                        std::string path;
+                        std::getline(std::cin, path);
+                        std::cout << "\033[?25l";
+                        if (!path.empty()) cfg.settings["ascii_path"] = path;
+                    } else if (selected == 1) {
+                        std::cout << "\033[" << (left_lines.size() + 2) << ";1H\033[1;36mVisit: https://asciiart.website/convert.php\033[0m\n";
+#ifdef _WIN32
+                        system("start https://asciiart.website/convert.php");
+#else
+                        system("xdg-open https://asciiart.website/convert.php 2>/dev/null");
+#endif
+                        std::this_thread::sleep_for(std::chrono::seconds(2));
+                    }
+                    if (state == 7) { state = 3; selected = 2; }
                 }
             }
             else if (state == 5) { // Reminder Box Submenu
