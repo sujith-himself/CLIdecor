@@ -1289,14 +1289,18 @@ std::vector<std::string> generate_preview(Config& cfg) {
             text_block.push_back(bg_color + fg_color + " " + l + pad + " " + RESET);
         }
     }
-
     std::vector<std::string> logo_block;
     std::string img_path = cfg.get_string("image_path", "");
     int img_width = cfg.get_int("image_width", 28);
     std::string img_style = cfg.get_string("image_style", "color");
     int pixel_size = cfg.get_int("pixel_size", 1);
-    int blur_strength = cfg.get_int("pixel_strength", 0); // User saves as pixel_strength in UI, but we treat it as blur_strength
-    int blur_radius = blur_strength; // 0 = sharp, 10 = max blur
+    int mosaic_strength = cfg.get_int("pixel_strength", 10); 
+    
+    // Scale up the resolution based on mosaic strength (10 = base resolution, 0 = 2.5x resolution)
+    float mosaic_mult = 1.0f + ((10 - mosaic_strength) * 0.15f);
+    int effective_img_width = (int)(img_width * mosaic_mult);
+    
+    int blur_radius = 0;
     
     float scale_x = 1.0f;
     try { scale_x = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
@@ -1310,7 +1314,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int max_h = text_block.size();
 
     if (!img_path.empty()) {
-        logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
+        logo_block = ImgRender::render_image(img_path, effective_img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
     }
 
     if (logo_block.empty()) {
@@ -1488,7 +1492,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             "1. Set Image Path Manually",
             "2. Choose Image (File Manager)",
             "3. Live Resize & Align Image",
-            "4. Adjust Blur Strength"
+            "4. Adjust Mosaic Effect"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1706,7 +1710,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     } else if (selected == 3) {
                         if (!cfg.get_string("image_path", "").empty()) {
                             std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
-                            std::cout << "\033[1;36mEnter Blur Strength (0 to 10): \033[0m";
+                            std::cout << "\033[1;36mEnter Mosaic Strength (0 to 10): \033[0m";
                             std::cout << "\033[?25h";
                             std::string b;
                             std::getline(std::cin, b);
