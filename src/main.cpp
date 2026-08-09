@@ -912,7 +912,30 @@ std::vector<std::string> render_image(
         chameleon_theme = {hex, end_hex};
     }
 
-    // Box blur removed as per user request (replaced by pixelation)
+    if (blur_radius > 0) {
+        int actual_radius = (blur_radius + 2) / 3; // 1-3=1, 4-6=2, 7-9=3, 10=4
+        if (actual_radius > 0) {
+            std::vector<std::vector<RGB>> blurred = grid;
+            for (int y = 0; y < target_h; ++y) {
+                for (int x = 0; x < width_cols; ++x) {
+                    long long r_tot = 0, g_tot = 0, b_tot = 0;
+                    int count = 0;
+                    for (int dy = -actual_radius; dy <= actual_radius; ++dy) {
+                        for (int dx = -actual_radius; dx <= actual_radius; ++dx) {
+                            int ny = std::clamp(y + dy, 0, target_h - 1);
+                            int nx = std::clamp(x + dx, 0, width_cols - 1);
+                            r_tot += grid[ny][nx].r;
+                            g_tot += grid[ny][nx].g;
+                            b_tot += grid[ny][nx].b;
+                            count++;
+                        }
+                    }
+                    blurred[y][x] = {(unsigned char)(r_tot / count), (unsigned char)(g_tot / count), (unsigned char)(b_tot / count)};
+                }
+            }
+            grid = blurred;
+        }
+    }
 
     if (style == "ascii") {
         for (int y = 0; y < target_h; ++y) {
@@ -1271,9 +1294,9 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::string img_path = cfg.get_string("image_path", "");
     int img_width = cfg.get_int("image_width", 28);
     std::string img_style = cfg.get_string("image_style", "color");
-    int pixel_strength = cfg.get_int("pixel_strength", 0);
-    int pixel_size = 1 + (pixel_strength * 3) / 10; // 0=1, 10=4
-    int blur_radius = 0;
+    int pixel_size = cfg.get_int("pixel_size", 1);
+    int blur_strength = cfg.get_int("pixel_strength", 0); // User saves as pixel_strength in UI, but we treat it as blur_strength
+    int blur_radius = blur_strength; // 0 = sharp, 10 = max blur
     
     float scale_x = 1.0f;
     try { scale_x = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
@@ -1465,7 +1488,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             "1. Set Image Path Manually",
             "2. Choose Image (File Manager)",
             "3. Live Resize & Align Image",
-            "4. Adjust Pixelation Strength"
+            "4. Adjust Blur Strength"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1683,7 +1706,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     } else if (selected == 3) {
                         if (!cfg.get_string("image_path", "").empty()) {
                             std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
-                            std::cout << "\033[1;36mEnter Pixelation Strength (0 to 10): \033[0m";
+                            std::cout << "\033[1;36mEnter Blur Strength (0 to 10): \033[0m";
                             std::cout << "\033[?25h";
                             std::string b;
                             std::getline(std::cin, b);
