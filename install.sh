@@ -1,88 +1,158 @@
 #!/bin/bash
-# CLI DECOR installer (C++ high-performance engine)
+# ╔══════════════════════════════════════════════════════════╗
+# ║           CLI DECOR — Installer                         ║
+# ║  Works two ways:                                        ║
+# ║    1. curl -sSL https://raw.githubusercontent.com/      ║
+# ║         sujith-himself/CLIdecor/main/install.sh | bash  ║
+# ║    2. git clone ... && bash install.sh                  ║
+# ╚══════════════════════════════════════════════════════════╝
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="https://github.com/sujith-himself/CLIdecor.git"
 INSTALL_DIR="$HOME/.config/clidecor"
-
-echo "Installing CLI DECOR (C++ engine) to $INSTALL_DIR ..."
-mkdir -p "$INSTALL_DIR"
-
-LIBS=""
-if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
-    LIBS="-lws2_32"
-fi
-
-if command -v g++ >/dev/null 2>&1; then
-    echo "Compiling C++ binary..."
-    g++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" $LIBS || make -C "$SCRIPT_DIR"
-elif command -v clang++ >/dev/null 2>&1; then
-    echo "Compiling C++ binary with clang++..."
-    clang++ -O3 -std=c++17 "$SCRIPT_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" $LIBS || make -C "$SCRIPT_DIR"
-fi
-
-if [ -f "$SCRIPT_DIR/clidecor.exe" ]; then
-    cp "$SCRIPT_DIR/clidecor.exe" "$INSTALL_DIR/clidecor.exe"
-fi
-
-# don't overwrite an existing user config
-if [ ! -f "$INSTALL_DIR/config.conf" ]; then
-    cp "$SCRIPT_DIR/config.conf" "$INSTALL_DIR/config.conf"
-fi
-
-# install default side art
-if [ -f "$SCRIPT_DIR/tux.png" ]; then
-    cp "$SCRIPT_DIR/tux.png" "$INSTALL_DIR/tux.png"
-fi
-
-chmod +x "$INSTALL_DIR/clidecor" 2>/dev/null || true
-
-EXE_NAME="clidecor"
-if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
-    EXE_NAME="clidecor.exe"
-fi
-
-# Make globally accessible for the user
 BIN_DIR="$HOME/.local/bin"
-mkdir -p "$BIN_DIR"
-if [ -f "$INSTALL_DIR/$EXE_NAME" ]; then
-    echo '#!/bin/sh' > "$BIN_DIR/clidecor"
-    echo "exec \"$INSTALL_DIR/$EXE_NAME\" \"\$@\"" >> "$BIN_DIR/clidecor"
-    chmod +x "$BIN_DIR/clidecor"
-fi
+TMP_DIR=""
 
-RC_FILE=""
-if [ -f "$HOME/.zshrc" ]; then
-    RC_FILE="$HOME/.zshrc"
-elif [ -f "$HOME/.bashrc" ]; then
-    RC_FILE="$HOME/.bashrc"
-elif [ -f "$HOME/.bash_profile" ]; then
-    RC_FILE="$HOME/.bash_profile"
-else
-    # Fallback: Create .bashrc
-    RC_FILE="$HOME/.bashrc"
-    touch "$RC_FILE"
-fi
+# ── Colour helpers ───────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+info()  { echo -e "${CYAN}[INFO]${RESET}  $*"; }
+ok()    { echo -e "${GREEN}[ OK ]${RESET}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
+die()   { echo -e "${RED}[FAIL]${RESET}  $*" >&2; exit 1; }
 
-LINE="\$HOME/.config/clidecor/$EXE_NAME"
-ALIAS_LINE="alias clidecor=\"\$HOME/.config/clidecor/$EXE_NAME\""
-
-if [ -n "$RC_FILE" ]; then
-    # Add auto-start on terminal launch
-    if ! grep -qF "\$HOME/.config/clidecor" "$RC_FILE" 2>/dev/null; then
-        echo "" >> "$RC_FILE"
-        echo "# CLI DECOR - runs on new terminal" >> "$RC_FILE"
-        echo "$LINE" >> "$RC_FILE"
-        echo "Added CLI DECOR auto-start to $RC_FILE"
-    fi
-    
-    # Add alias for global command access if PATH doesn't work out of the box
-    if ! grep -qF "alias clidecor" "$RC_FILE" 2>/dev/null; then
-        echo "$ALIAS_LINE" >> "$RC_FILE"
-        echo "Added 'clidecor' alias to $RC_FILE"
-    fi
-fi
-
+echo -e "${BOLD}"
+echo "  ██████╗██╗     ██╗██████╗ ███████╗ ██████╗ ██████╗ ██████╗ "
+echo " ██╔════╝██║     ██║██╔══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗"
+echo " ██║     ██║     ██║██║  ██║█████╗  ██║     ██║   ██║██████╔╝"
+echo " ██║     ██║     ██║██║  ██║██╔══╝  ██║     ██║   ██║██╔══██╗"
+echo " ╚██████╗███████╗██║██████╔╝███████╗╚██████╗╚██████╔╝██║  ██║"
+echo "  ╚═════╝╚══════╝╚═╝╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝╚═╝  ╚═╝"
+echo -e "${RESET}"
+echo -e " ${CYAN}The neofetch replacement built in C++${RESET}"
 echo ""
-echo "Done. Edit ~/.config/clidecor/config.conf to customize what shows."
-echo -e "\033[1;32mIMPORTANT: Run 'source $RC_FILE' or open a new terminal to use the 'clidecor' command globally!\033[0m"
+
+# ── Detect if running from inside a cloned repo or via curl ──
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [ -f "$SCRIPT_DIR/src/main.cpp" ]; then
+    SOURCE_DIR="$SCRIPT_DIR"
+    info "Running from cloned repo at $SOURCE_DIR"
+else
+    # Running via curl — clone the repo to a temp dir
+    info "Running via curl — cloning repo..."
+    if ! command -v git &>/dev/null; then
+        die "git is required. Install it with: sudo apt install git  (or your distro's equivalent)"
+    fi
+    TMP_DIR="$(mktemp -d)"
+    git clone --depth=1 "$REPO" "$TMP_DIR" &>/dev/null || die "Failed to clone repository. Check your internet connection."
+    SOURCE_DIR="$TMP_DIR"
+    ok "Repository cloned."
+fi
+
+# ── Check dependencies ────────────────────────────────────────
+info "Checking dependencies..."
+HAS_GPP=false; HAS_CLANG=false
+command -v g++     &>/dev/null && HAS_GPP=true
+command -v clang++ &>/dev/null && HAS_CLANG=true
+
+if ! $HAS_GPP && ! $HAS_CLANG; then
+    echo ""
+    warn "No C++ compiler found. Install one with:"
+    echo "   Ubuntu/Debian : sudo apt install g++"
+    echo "   Arch/Manjaro  : sudo pacman -S gcc"
+    echo "   Fedora        : sudo dnf install gcc-c++"
+    echo "   openSUSE      : sudo zypper install gcc-c++"
+    echo ""
+    die "Aborting. Please install a C++ compiler and re-run."
+fi
+
+# ── Create install directory ──────────────────────────────────
+mkdir -p "$INSTALL_DIR" "$BIN_DIR"
+
+# ── Compile ───────────────────────────────────────────────────
+info "Compiling CLI DECOR (this takes about 10 seconds)..."
+COMPILE_OK=false
+if $HAS_GPP; then
+    if g++ -O3 -std=c++17 "$SOURCE_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" -pthread 2>/dev/null; then
+        COMPILE_OK=true
+    fi
+fi
+if ! $COMPILE_OK && $HAS_CLANG; then
+    if clang++ -O3 -std=c++17 "$SOURCE_DIR/src/main.cpp" -o "$INSTALL_DIR/clidecor" -pthread 2>/dev/null; then
+        COMPILE_OK=true
+    fi
+fi
+if ! $COMPILE_OK; then
+    die "Compilation failed. Please open an issue at: $REPO/issues"
+fi
+ok "Binary compiled successfully."
+chmod +x "$INSTALL_DIR/clidecor"
+
+# ── Copy assets (don't overwrite user's existing config) ──────
+if [ ! -f "$INSTALL_DIR/config.conf" ]; then
+    cp "$SOURCE_DIR/config.conf" "$INSTALL_DIR/config.conf"
+    ok "Default config installed."
+else
+    info "Existing config preserved."
+fi
+
+if [ -f "$SOURCE_DIR/tux.png" ] && [ ! -f "$INSTALL_DIR/tux.png" ]; then
+    cp "$SOURCE_DIR/tux.png" "$INSTALL_DIR/tux.png"
+fi
+
+# ── Install wrapper script to ~/.local/bin ────────────────────
+cat > "$BIN_DIR/clidecor" <<EOF
+#!/bin/sh
+exec "$INSTALL_DIR/clidecor" "\$@"
+EOF
+chmod +x "$BIN_DIR/clidecor"
+ok "Wrapper installed to $BIN_DIR/clidecor"
+
+# ── Add ~/.local/bin to PATH and auto-run on terminal start ──
+for RC in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    [ -f "$RC" ] || continue
+
+    # Add ~/.local/bin to PATH if missing
+    if ! grep -qF 'HOME/.local/bin' "$RC" 2>/dev/null; then
+        echo '' >> "$RC"
+        echo '# Added by CLIdecor installer' >> "$RC"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$RC"
+        ok "Added ~/.local/bin to PATH in $RC"
+    fi
+
+    # Add auto-run on new terminal
+    if ! grep -qF 'clidecor' "$RC" 2>/dev/null; then
+        echo '' >> "$RC"
+        echo '# CLI DECOR — shows system info on new terminal' >> "$RC"
+        echo 'clidecor' >> "$RC"
+        ok "Auto-run added to $RC"
+    fi
+
+    # Add bash completions
+    if [[ "$RC" == *".bashrc"* ]] && ! grep -qF 'complete -W' "$RC" 2>/dev/null; then
+        echo "complete -W \"--settings --update --version --help --remove -t --theme --remind --refresh\" clidecor" >> "$RC"
+        ok "Bash tab completion added"
+    fi
+
+    break  # Only modify the first shell rc file found
+done
+
+# ── Cleanup temp dir ──────────────────────────────────────────
+if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+    rm -rf "$TMP_DIR"
+fi
+
+# ── Done ──────────────────────────────────────────────────────
+echo ""
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
+echo -e "${GREEN}${BOLD}║   CLI DECOR installed successfully!      ║${RESET}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
+echo ""
+echo -e "  ${CYAN}Run now  :${RESET} clidecor"
+echo -e "  ${CYAN}Settings :${RESET} clidecor --settings"
+echo -e "  ${CYAN}Config   :${RESET} ~/.config/clidecor/config.conf"
+echo -e "  ${CYAN}Update   :${RESET} clidecor --update"
+echo -e "  ${CYAN}Remove   :${RESET} clidecor --remove"
+echo ""
+echo -e " ${YELLOW}Open a new terminal or run: source ~/.bashrc${RESET}"
+echo ""

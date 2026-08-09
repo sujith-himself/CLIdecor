@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-linux:
+    name: Linux (g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install g++
+        run: sudo apt-get install -y g++
+      - name: Compile
+        run: g++ -O3 -std=c++17 src/main.cpp -o clidecor -pthread
+      - name: Smoke test
+        run: timeout 5 ./clidecor || true
+
+  build-macos:
+    name: macOS (clang++)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        run: clang++ -O3 -std=c++17 src/main.cpp -o clidecor -pthread
+      - name: Smoke test
+        run: timeout 5 ./clidecor || true

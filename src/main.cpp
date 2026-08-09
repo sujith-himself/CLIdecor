@@ -40,6 +40,7 @@
 #include <thread>
 #include <chrono>
 #include <functional>
+#include <sys/stat.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -856,6 +857,34 @@ static RGB get_bilinear(const unsigned char* data, int w, int h, int ch, float r
     return r;
 }
 
+static std::string get_cache_path(const std::string& path, int width, float scale_x, float scale_y) {
+    std::string tmp = "/tmp";
+#ifdef _WIN32
+    if (const char* env_p = std::getenv("TEMP")) tmp = env_p;
+#else
+    if (const char* env_p = std::getenv("TMPDIR")) tmp = env_p;
+#endif
+    struct stat attr;
+    long long mtime = 0;
+    if (stat(path.c_str(), &attr) == 0) mtime = attr.st_mtime;
+    std::hash<std::string> hasher;
+    std::string key = path + "_" + std::to_string(mtime) + "_" + std::to_string(width) + "_" + std::to_string(scale_x) + "_" + std::to_string(scale_y);
+    return tmp + "/clidecor_img_" + std::to_string(hasher(key)) + ".cache";
+}
+
+void clear_image_cache() {
+    std::string tmp = "/tmp";
+#ifdef _WIN32
+    if (const char* env_p = std::getenv("TEMP")) tmp = env_p;
+    std::string cmd = "del /Q /F \"" + tmp + "\\clidecor_img_*.cache\" 2>nul";
+#else
+    if (const char* env_p = std::getenv("TMPDIR")) tmp = env_p;
+    std::string cmd = "rm -f \"" + tmp + "\"/clidecor_img_*.cache 2>/dev/null";
+#endif
+    int res = system(cmd.c_str());
+    (void)res;
+}
+
 std::vector<std::string> render_image(
     const std::string& path,
     int base_width,
@@ -867,10 +896,32 @@ std::vector<std::string> render_image(
     int max_h = 0
 ) {
     std::vector<std::string> out_lines;
+    
+    std::string cache_file = get_cache_path(path, base_width, scale_x, scale_y);
+    std::ifstream c_in(cache_file);
+    if (c_in.is_open()) {
+        std::string line;
+        std::string h1, h2;
+        if (std::getline(c_in, h1) && std::getline(c_in, h2)) {
+            chameleon_theme = {h1, h2};
+        }
+        while (std::getline(c_in, line)) {
+            out_lines.push_back(line);
+        }
+        if (!out_lines.empty()) return out_lines;
+    }
+
     int orig_w, orig_h, orig_channels;
     unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &orig_channels, 4);
     int channels = 4;
-    if (!data) return out_lines;
+    if (!data) {
+        out_lines.push_back("\033[1;31m[!] Failed to load image:\033[0m");
+        out_lines.push_back("\033[1;31m    " + path + "\033[0m");
+        out_lines.push_back("");
+        out_lines.push_back("\033[1;33mPlease check that the file exists\033[0m");
+        out_lines.push_back("\033[1;33mand is a valid PNG, JPG, or BMP.\033[0m");
+        return out_lines;
+    }
     if (base_width <= 0) base_width = 28;
 
     float aspect = (float)orig_h / (float)orig_w;
@@ -920,6 +971,15 @@ std::vector<std::string> render_image(
         }
         out_lines.push_back(ss.str());
     }
+
+    std::ofstream c_out(cache_file);
+    if (c_out.is_open()) {
+        c_out << chameleon_theme.first << "\n" << chameleon_theme.second << "\n";
+        for (const auto& line : out_lines) {
+            c_out << line << "\n";
+        }
+    }
+
     return out_lines;
 }
 
@@ -1045,7 +1105,8 @@ std::vector<std::string> get_os_logo(const std::string& os, int& width) {
             "    |____||____| ",
             "     ____  ____  ",
             "    |    ||    | ",
-            "    |____||____| "
+            "    |____||____| ",
+            "                 "
         };
     } else if (os_lower.find("ubuntu") != std::string::npos) {
         return {
@@ -1054,7 +1115,8 @@ std::vector<std::string> get_os_logo(const std::string& os, int& width) {
             " _/         \\_   ",
             "(_)         (_)  ",
             "  \\         /    ",
-            "   ---(_)---     "
+            "   ---(_)---     ",
+            "                 "
         };
     } else if (os_lower.find("arch") != std::string::npos) {
         return {
@@ -1065,6 +1127,86 @@ std::vector<std::string> get_os_logo(const std::string& os, int& width) {
             "    /   ,,   \\   ",
             "   /   |  |   \\  ",
             "  /_-''    ''-_\\"
+        };
+    } else if (os_lower.find("fedora") != std::string::npos) {
+        return {
+            "      _____      ",
+            "     /   __)\\    ",
+            "     |  /  \\ \\   ",
+            "     |  \\__/ |   ",
+            "      \\_____/    ",
+            "                 ",
+            "                 "
+        };
+    } else if (os_lower.find("debian") != std::string::npos) {
+        return {
+            "       _,-=._    ",
+            "      /  ,-'_`\\  ",
+            "     |  (  (.) ) ",
+            "      \\  `=_,_,' ",
+            "       `----'    ",
+            "                 ",
+            "                 "
+        };
+    } else if (os_lower.find("kali") != std::string::npos) {
+        return {
+            "      ..         ",
+            "    '    '       ",
+            "   |  ()  |      ",
+            "   |      |      ",
+            "    '    '       ",
+            "      ''         ",
+            "                 "
+        };
+    } else if (os_lower.find("mint") != std::string::npos) {
+        return {
+            "    _______      ",
+            "   |       |     ",
+            "   | \\  /\\ |     ",
+            "   |  \\/  \\|     ",
+            "   |_______|     ",
+            "                 ",
+            "                 "
+        };
+    } else if (os_lower.find("pop") != std::string::npos) {
+        return {
+            "    ______       ",
+            "   /     /\\      ",
+            "  /     /  \\     ",
+            " /_____/____\\    ",
+            "                 ",
+            "                 ",
+            "                 "
+        };
+    } else if (os_lower.find("manjaro") != std::string::npos) {
+        return {
+            "   ||||||||| ||| ",
+            "   ||||||||| ||| ",
+            "   |||       ||| ",
+            "   ||| ||||| ||| ",
+            "   ||| ||||| ||| ",
+            "   ||| ||||| ||| ",
+            "                 "
+        };
+    } else if (os_lower.find("opensuse") != std::string::npos || os_lower.find("suse") != std::string::npos) {
+        return {
+            "     ____        ",
+            "   /'    `\\      ",
+            "  |   __   |     ",
+            "  |  /  \\  |     ",
+            "   \\_\\__/_/      ",
+            "                 ",
+            "                 "
+        };
+    } else if (os_lower.find("endeavour") != std::string::npos) {
+        return {
+            "      /\\         ",
+            "    //  \\\\       ",
+            "   //    \\\\      ",
+            "  //======\\\\     ",
+            " //        \\\\    ",
+            "                 ",
+            "                 "
         };
     } else if (os_lower.find("mac") != std::string::npos || os_lower.find("darwin") != std::string::npos) {
         return {
@@ -1078,6 +1220,8 @@ std::vector<std::string> get_os_logo(const std::string& os, int& width) {
             "    `.___.'      "
         };
     }
+    
+    // Default Tux
     return {
         "       .--.      ",
         "      |o_o |     ",
@@ -1679,7 +1823,10 @@ int main(int argc, char* argv[]) {
     try {
     if (argc > 1) {
         std::string arg = argv[1];
-        if (arg == "--help" || arg == "-h") {
+        if (arg == "--version" || arg == "-v") {
+            std::cout << "CLI DECOR v1.0.0\n";
+            return 0;
+        } else if (arg == "--help" || arg == "-h") {
             std::cout << "CLI DECOR — neofetch replacement (C++ engine)\n\n"
                       << "Usage:\n"
                       << "  clidecor              run normally (print preview)\n"
@@ -1688,11 +1835,14 @@ int main(int argc, char* argv[]) {
                       << "  clidecor -t, --theme <name> change theme (e.g. dracula)\n"
                       << "  clidecor --remind \"text\"  update reminder box text\n"
                       << "  clidecor --refresh    clear cache and re-render\n"
+                      << "  clidecor --update     fetch and compile latest version\n"
+                      << "  clidecor -v, --version show version number\n"
                       << "  clidecor -h, --help   show this message\n\n"
                       << "Config: ~/.config/clidecor/config.conf\n";
             return 0;
         } else if (arg == "--refresh") {
-            std::cout << "Cache cleared.\n";
+            ImgRender::clear_image_cache();
+            std::cout << "\033[1;32mImage cache cleared.\033[0m\n";
             return 0;
         } else if (arg == "--settings" || arg == "-s") {
             std::string config_path = Config::get_default_config_path();

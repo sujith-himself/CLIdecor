@@ -1,0 +1,75 @@
+.TH CLIDECOR 1 "2026" "1.0.0" "CLI DECOR Manual"
+.SH NAME
+clidecor \- blazing-fast, config-driven Neofetch replacement written in C++17
+.SH SYNOPSIS
+.B clidecor
+[\fIOPTION\fR] [\fIARGUMENT\fR]
+.SH DESCRIPTION
+CLI DECOR displays system information (OS, kernel, CPU, memory, disk, etc.)
+alongside custom image pixel art or ASCII logo art in your terminal.
+It is designed to be sub-5ms, config-driven, and fully modular.
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Print usage information and exit.
+.TP
+.B \-\-version
+Print the installed version number and exit.
+.TP
+.B \-\-settings
+Launch the interactive TUI settings menu.
+.TP
+.B \-\-update
+Fetch the latest source from GitHub, recompile, and reinstall in place.
+Asks for confirmation before proceeding.
+.TP
+.B \-\-remove
+Uninstall CLI DECOR, removing the binary, config directory, and shell aliases.
+.TP
+.B \-t \fI<theme>\fR
+Set the active colour theme. Available themes:
+\fBdefault\fR, \fBhacker\fR, \fBdracula\fR, \fBnord\fR, \fBfire\fR, \fBgold\fR, \fBchameleon\fR.
+.TP
+.B \-\-remind \fI"text"\fR
+Set the reminder box text displayed at the bottom of the output.
+.SH FILES
+.TP
+.I ~/.config/clidecor/config.conf
+Main configuration file. Edit to toggle modules, set themes, and configure image art.
+.TP
+.I ~/.config/clidecor/clidecor
+The compiled binary installed by the installer.
+.SH CONFIGURATION
+Key configuration options (see config.conf for the full annotated list):
+.PP
+.nf
+show_os=1           Show OS name
+show_cpu=1          Show CPU + usage bar
+show_memory=1       Show RAM usage bar
+theme=default       Colour theme
+image_path=         Path to custom PNG/JPG image
+image_width=28      Image width in terminal columns
+reminder_text=      Sticky reminder note shown on startup
+.fi
+.SH EXAMPLES
+.TP
+Run normally:
+.B clidecor
+.TP
+Open settings:
+.B clidecor --settings
+.TP
+Switch to hacker theme:
+.B clidecor -t hacker
+.TP
+Set a reminder:
+.B clidecor --remind "Ship the code today"
+.TP
+Update to latest version:
+.B clidecor --update
+.SH BUGS
+Report bugs at: https://github.com/sujith-himself/CLIdecor/issues
+.SH AUTHOR
+sujith-himself <https://github.com/sujith-himself>
+.SH LICENSE
+MIT License. Free to use, modify, and distribute.
