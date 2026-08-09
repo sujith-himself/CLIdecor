@@ -938,17 +938,29 @@ std::vector<std::string> render_image(
     }
 
     if (style == "ascii") {
-        for (int y = 0; y < target_h; ++y) {
+        // Solid filled block rendering — same technique as CLIDECOR header
+        // Uses █ (U+2588) with exact TrueColor background+foreground so it looks
+        // like a solid pixel grid rather than ugly sparse dot/hash characters.
+        for (int y = 0; y < target_h; y += 2) {
             std::ostringstream line;
             for (int x = 0; x < width_cols; ++x) {
-                const RGB& p = grid[y][x];
-                float bright = (p.r * 0.299f + p.g * 0.587f + p.b * 0.114f) / 255.0f;
-                int idx = (int)(bright * (ASCII_RAMP.length() - 1));
-                idx = std::clamp(idx, 0, (int)ASCII_RAMP.length() - 1);
-                if (is_bg(p)) {
+                RGB top = grid[y][x];
+                RGB bot = (y + 1 < target_h) ? grid[y + 1][x] : top;
+                bool top_bg = is_bg(top);
+                bool bot_bg = is_bg(bot);
+                if (top_bg && bot_bg) {
                     line << " ";
+                } else if (top_bg) {
+                    // bottom half filled
+                    line << "\033[38;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x84\033[0m";
+                } else if (bot_bg) {
+                    // top half filled
+                    line << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m\xe2\x96\x80\033[0m";
                 } else {
-                    line << "\033[38;2;" << (int)p.r << ";" << (int)p.g << ";" << (int)p.b << "m" << ASCII_RAMP[idx] << "\033[0m";
+                    // both rows filled — use solid block with top fg + bot bg
+                    line << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m"
+                         << "\033[48;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m"
+                         << "\xe2\x96\x80\033[0m";
                 }
             }
             out_lines.push_back(line.str());
