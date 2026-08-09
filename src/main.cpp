@@ -41,6 +41,14 @@
 #include <chrono>
 #include <functional>
 #include <sys/stat.h>
+#include <csignal>
+
+void handle_signal(int sig) {
+    std::cout << "\033[?1049l";
+    std::cout << "\033[?25h\033[?1000l\033[?1007l\033[0m\n";
+    std::cout.flush();
+    std::exit(sig);
+}
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -1868,12 +1876,19 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         }
     }
     
-    std::cout << "\033[?1049l\033[?25h"; // Exit alternate screen buffer & show cursor
+    std::cout << "\033[?1049l"; // Exit alternate screen buffer
+    std::cout.flush();
+    std::cout << "\033[?25h\033[?1000l\033[?1007l\033[0m"; // Show cursor, disable mouse, reset formatting
+    std::cout.flush();
     cfg.save_to_file(config_path);
     std::cout << "\033[1;32mSettings saved to " << config_path << "!\033[0m\n";
+    std::cout.flush();
 }
 
 int main(int argc, char* argv[]) {
+    std::signal(SIGINT, handle_signal);
+    std::signal(SIGTERM, handle_signal);
+    
     try {
     if (argc > 1) {
         std::string arg = argv[1];
