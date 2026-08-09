@@ -841,223 +841,161 @@ static RGB get_sample(unsigned char* data, int orig_w, int orig_h, int channels,
     return {r, g, b};
 }
 
+// Bilinear interpolation — smooth downsampling instead of blocky nearest-neighbor
+static RGB get_bilinear(const unsigned char* data, int w, int h, int ch, float rx, float ry) {
+    int x0 = std::max(0, std::min((int)rx, w - 1));
+    int y0 = std::max(0, std::min((int)ry, h - 1));
+    int x1 = std::min(x0 + 1, w - 1);
+    int y1 = std::min(y0 + 1, h - 1);
+    float fx = rx - x0, fy = ry - y0;
+    auto s = [&](int x, int y, int c) { return (float)data[(y * w + x) * ch + c]; };
+    RGB r;
+    r.r = (unsigned char)((1-fy)*((1-fx)*s(x0,y0,0)+fx*s(x1,y0,0))+fy*((1-fx)*s(x0,y1,0)+fx*s(x1,y1,0)));
+    r.g = (unsigned char)((1-fy)*((1-fx)*s(x0,y0,1)+fx*s(x1,y0,1))+fy*((1-fx)*s(x0,y1,1)+fx*s(x1,y1,1)));
+    r.b = (unsigned char)((1-fy)*((1-fx)*s(x0,y0,2)+fx*s(x1,y0,2))+fy*((1-fx)*s(x0,y1,2)+fx*s(x1,y1,2)));
+    return r;
+}
+
 std::vector<std::string> render_image(
     const std::string& path,
     int base_width,
     float scale_x = 1.0f,
     float scale_y = 1.0f,
-    const std::string& style = "color",
-    int block_size = 1,
-    int blur_radius = 0,
+    const std::string& /*style*/ = "color", // style ignored — always braille
+    int /*block_size*/ = 1,                 // block_size ignored
+    int /*blur_radius*/ = 0,                // blur removed
     int max_h = 0
 ) {
     std::vector<std::string> out_lines;
     int orig_w, orig_h, orig_channels;
-    
     unsigned char* data = stbi_load(path.c_str(), &orig_w, &orig_h, &orig_channels, 4);
-    
     int channels = 4;
     if (!data) return out_lines;
-
     if (base_width <= 0) base_width = 28;
-    if (block_size < 1) block_size = 1;
 
-    long long total_r = 0, total_g = 0, total_b = 0;
-    int pixel_count = 0;
-
+    // ── Geometry ──────────────────────────────────────────────────────────────
+    // Braille: each output character = 2 cols × 4 rows of image pixels
+    // We maintain the same visual HEIGHT as the old half-block renderer.
     float aspect = (float)orig_h / (float)orig_w;
-    // For quarter-block we sample at 2x horizontal resolution
-    bool is_quarter = (style == "ascii");
-    int rows_mult = 2; // always use 2-row height sampling
-    int base_h = (int)(base_width * aspect * 0.55f * rows_mult);
-    
     int width_cols = std::max(1, (int)(base_width * scale_x));
-    int target_h = std::max(2, (int)(base_h * scale_y));
-    if (target_h % 2 != 0) target_h += 1;
+    int half_h = std::max(2, (int)(base_width * aspect * 0.55f * scale_y)); // half-block line count
+    if (half_h % 2 != 0) half_h++;
+    int braille_lines = half_h / 2;          // output lines (same visual height as half-block)
+    int grid_h = braille_lines * 4;          // image rows we sample
+    int grid_w = width_cols * 2;             // image cols we sample
 
-    // For quarter-block: sample at 2x horizontal resolution so each output
-    // character represents a 2-wide × 2-tall block of real image pixels.
-    int sample_w = is_quarter ? (width_cols * 2) : width_cols;
-
-    std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(sample_w));
-    
-    for (int y = 0; y < target_h; ++y) {
-        for (int x = 0; x < sample_w; ++x) {
-            int effective_x = (x / block_size) * block_size;
-            int effective_y = (y / block_size) * block_size;
-            float rx = ((float)effective_x / (float)sample_w) * orig_w;
-            float ry = ((float)effective_y / (float)target_h) * orig_h;
-            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
+    // ── Bilinear-sampled high-res grid ────────────────────────────────────────
+    std::vector<std::vector<RGB>> grid(grid_h, std::vector<RGB>(grid_w));
+    for (int y = 0; y < grid_h; ++y) {
+        for (int x = 0; x < grid_w; ++x) {
+            float rx = ((float)x / grid_w) * orig_w;
+            float ry = ((float)y / grid_h) * orig_h;
+            grid[y][x] = get_bilinear(data, orig_w, orig_h, channels, rx, ry);
         }
     }
     stbi_image_free(data);
 
-
-
-
-    for (int y = 0; y < target_h; ++y) {
-        for (int x = 0; x < width_cols; ++x) {
-             if (!is_bg(grid[y][x])) {
-                 total_r += grid[y][x].r;
-                 total_g += grid[y][x].g;
-                 total_b += grid[y][x].b;
-                 pixel_count++;
-             }
-        }
-    }
+    // ── Chameleon: compute dominant color from image ───────────────────────────
+    long long total_r = 0, total_g = 0, total_b = 0;
+    int pixel_count = 0;
+    for (int y = 0; y < grid_h; ++y)
+        for (int x = 0; x < grid_w; ++x)
+            if (!is_bg(grid[y][x])) {
+                total_r += grid[y][x].r;
+                total_g += grid[y][x].g;
+                total_b += grid[y][x].b;
+                pixel_count++;
+            }
     if (pixel_count > 0) {
-        int avg_r = total_r / pixel_count;
-        int avg_g = total_g / pixel_count;
-        int avg_b = total_b / pixel_count;
-        
-        char hex[8];
-        snprintf(hex, sizeof(hex), "#%02X%02X%02X", avg_r, avg_g, avg_b);
-        int end_r = std::min(255, (int)(avg_r * 1.5));
-        int end_g = std::min(255, (int)(avg_g * 1.5));
-        int end_b = std::min(255, (int)(avg_b * 1.5));
-        char end_hex[8];
-        snprintf(end_hex, sizeof(end_hex), "#%02X%02X%02X", end_r, end_g, end_b);
+        int ar = total_r/pixel_count, ag = total_g/pixel_count, ab = total_b/pixel_count;
+        char hex[8]; snprintf(hex, sizeof(hex), "#%02X%02X%02X", ar, ag, ab);
+        char end_hex[8]; snprintf(end_hex, sizeof(end_hex), "#%02X%02X%02X",
+            std::min(255,(int)(ar*1.5)), std::min(255,(int)(ag*1.5)), std::min(255,(int)(ab*1.5)));
         chameleon_theme = {hex, end_hex};
     }
 
-    if (blur_radius > 0) {
-        int actual_radius = (blur_radius + 2) / 3; // 1-3=1, 4-6=2, 7-9=3, 10=4
-        if (actual_radius > 0) {
-            std::vector<std::vector<RGB>> blurred = grid;
-            for (int y = 0; y < target_h; ++y) {
-                for (int x = 0; x < width_cols; ++x) {
-                    long long r_tot = 0, g_tot = 0, b_tot = 0;
-                    int count = 0;
-                    for (int dy = -actual_radius; dy <= actual_radius; ++dy) {
-                        for (int dx = -actual_radius; dx <= actual_radius; ++dx) {
-                            int ny = std::clamp(y + dy, 0, target_h - 1);
-                            int nx = std::clamp(x + dx, 0, width_cols - 1);
-                            r_tot += grid[ny][nx].r;
-                            g_tot += grid[ny][nx].g;
-                            b_tot += grid[ny][nx].b;
-                            count++;
-                        }
-                    }
-                    blurred[y][x] = {(unsigned char)(r_tot / count), (unsigned char)(g_tot / count), (unsigned char)(b_tot / count)};
-                }
-            }
-            grid = blurred;
+    // ── Floyd-Steinberg dithered Braille rendering ────────────────────────────
+    // Braille Unicode: U+2800 + bit-pattern
+    //   Dot positions within each 2×4 block:
+    //     col0,row0=bit0  col1,row0=bit3
+    //     col0,row1=bit1  col1,row1=bit4
+    //     col0,row2=bit2  col1,row2=bit5
+    //     col0,row3=bit6  col1,row3=bit7
+    static const int BRAILLE_BITS[4][2] = {{0,3},{1,4},{2,5},{6,7}};
+
+    // Build brightness map with F-S error accumulator
+    std::vector<std::vector<float>> bright(grid_h, std::vector<float>(grid_w, 0.0f));
+    for (int y = 0; y < grid_h; ++y)
+        for (int x = 0; x < grid_w; ++x) {
+            const RGB& p = grid[y][x];
+            bright[y][x] = p.r * 0.299f + p.g * 0.587f + p.b * 0.114f;
+        }
+
+    // Floyd-Steinberg dithering on the brightness channel
+    std::vector<std::vector<bool>> dot_on(grid_h, std::vector<bool>(grid_w, false));
+    for (int y = 0; y < grid_h; ++y) {
+        for (int x = 0; x < grid_w; ++x) {
+            float old_val = std::clamp(bright[y][x], 0.0f, 255.0f);
+            bool on = old_val >= 128.0f;
+            dot_on[y][x] = on;
+            float err = old_val - (on ? 255.0f : 0.0f);
+            // Distribute error to neighbors (classic F-S coefficients)
+            if (x + 1 < grid_w)             bright[y][x+1]   += err * (7.0f/16.0f);
+            if (y + 1 < grid_h && x > 0)    bright[y+1][x-1] += err * (3.0f/16.0f);
+            if (y + 1 < grid_h)              bright[y+1][x]   += err * (5.0f/16.0f);
+            if (y + 1 < grid_h && x+1 < grid_w) bright[y+1][x+1] += err * (1.0f/16.0f);
         }
     }
 
-    if (is_quarter) {
-        // Quarter-block rendering: each terminal character represents a 2×2 pixel block.
-        // We use the 16 Unicode quadrant block characters to encode which sub-pixels are
-        // "foreground" vs "background", then paint FG+BG with exact TrueColor RGB values.
-        // Result: 2× more horizontal detail than half-block rendering.
-        
-        // Quarter-block chars indexed by 4-bit pattern: bit3=TL, bit2=TR, bit1=BL, bit0=BR
-        // UTF-8 sequences for each of the 16 patterns
-        static const char* QB[16] = {
-            " ",                        // 0000 - empty
-            "\xe2\x96\x97",            // 0001 - ▗ lower-right
-            "\xe2\x96\x96",            // 0010 - ▖ lower-left
-            "\xe2\x96\x84",            // 0011 - ▄ lower half
-            "\xe2\x96\x9d",            // 0100 - ▝ upper-right
-            "\xe2\x96\x90",            // 0101 - ▐ right half
-            "\xe2\x96\x9e",            // 0110 - ▞ diagonal
-            "\xe2\x96\x9f",            // 0111 - ▟ lower+upper-right
-            "\xe2\x96\x98",            // 1000 - ▘ upper-left
-            "\xe2\x96\x9a",            // 1001 - ▚ diagonal
-            "\xe2\x96\x8c",            // 1010 - ▌ left half
-            "\xe2\x96\x99",            // 1011 - ▙ lower+upper-left
-            "\xe2\x96\x80",            // 1100 - ▀ upper half
-            "\xe2\x96\x9c",            // 1101 - ▜ upper+lower-right (note: ▜)
-            "\xe2\x96\x9b",            // 1110 - ▛ upper+lower-left
-            "\xe2\x96\x88",            // 1111 - █ full block
-        };
+    // Encode braille characters
+    for (int by = 0; by < braille_lines; ++by) {
+        std::ostringstream line;
+        for (int bx = 0; bx < width_cols; ++bx) {
+            // 2×4 pixel block
+            int py0 = by * 4, px0 = bx * 2;
 
-        for (int y = 0; y < target_h; y += 2) {
-            std::ostringstream line;
-            // Process 2 image-pixel columns at a time → 1 output character
-            for (int x = 0; x < width_cols * 2; x += 2) {
-                // 4 pixel corners of this 2×2 block
-                RGB tl = grid[y][x];
-                RGB tr = grid[y][x + 1];
-                RGB bl = (y + 1 < target_h) ? grid[y + 1][x]     : tl;
-                RGB br = (y + 1 < target_h) ? grid[y + 1][x + 1] : tr;
+            // Build braille bit-pattern + accumulate FG/BG colors
+            int bitmask = 0;
+            int fg_r=0,fg_g=0,fg_b=0,fg_cnt=0;
+            int bg_r=0,bg_g=0,bg_b=0,bg_cnt=0;
+            bool any_fg = false, all_bg = true;
 
-                bool tl_bg = is_bg(tl), tr_bg = is_bg(tr);
-                bool bl_bg = is_bg(bl), br_bg = is_bg(br);
-
-                if (tl_bg && tr_bg && bl_bg && br_bg) {
-                    line << " ";
-                    continue;
-                }
-
-                // Find average "foreground" color (non-bg pixels) and 
-                // average "background" color (bg pixels or darker pixels)
-                // Strategy: compute mean of all 4, then split above/below
-                int avg_r = ((int)tl.r + tr.r + bl.r + br.r) / 4;
-                int avg_g = ((int)tl.g + tr.g + bl.g + br.g) / 4;
-                int avg_b = ((int)tl.b + tr.b + bl.b + br.b) / 4;
-
-                // Each pixel is "fg" if its brightness >= average brightness
-                float avg_bright = (avg_r * 0.299f + avg_g * 0.587f + avg_b * 0.114f);
-                auto is_fg = [&](const RGB& p, bool bg) -> bool {
-                    if (bg) return false;
-                    float b = p.r * 0.299f + p.g * 0.587f + p.b * 0.114f;
-                    return b >= avg_bright;
-                };
-
-                bool tl_fg = is_fg(tl, tl_bg);
-                bool tr_fg = is_fg(tr, tr_bg);
-                bool bl_fg = is_fg(bl, bl_bg);
-                bool br_fg = is_fg(br, br_bg);
-
-                // Build the 4-bit pattern (TL=bit3, TR=bit2, BL=bit1, BR=bit0)
-                int pattern = (tl_fg ? 8 : 0) | (tr_fg ? 4 : 0) | (bl_fg ? 2 : 0) | (br_fg ? 1 : 0);
-
-                // Average the fg and bg colors separately for maximum color accuracy
-                int fg_r = 0, fg_g = 0, fg_b = 0, fg_cnt = 0;
-                int bg_r = 0, bg_g = 0, bg_b = 0, bg_cnt = 0;
-                auto accum = [&](const RGB& p, bool fg) {
-                    if (fg) { fg_r += p.r; fg_g += p.g; fg_b += p.b; fg_cnt++; }
-                    else     { bg_r += p.r; bg_g += p.g; bg_b += p.b; bg_cnt++; }
-                };
-                accum(tl, tl_fg); accum(tr, tr_fg); accum(bl, bl_fg); accum(br, br_fg);
-
-                if (fg_cnt == 0) { fg_r = avg_r; fg_g = avg_g; fg_b = avg_b; fg_cnt = 1; }
-                if (bg_cnt == 0) { bg_r = 0; bg_g = 0; bg_b = 0; bg_cnt = 1; }
-                
-                int fR = fg_r/fg_cnt, fG = fg_g/fg_cnt, fB = fg_b/fg_cnt;
-                int bR = bg_r/bg_cnt, bG = bg_g/bg_cnt, bB = bg_b/bg_cnt;
-
-                line << "\033[38;2;" << fR << ";" << fG << ";" << fB << "m"
-                     << "\033[48;2;" << bR << ";" << bG << ";" << bB << "m"
-                     << QB[pattern] << "\033[0m";
-            }
-            out_lines.push_back(line.str());
-        }
-    } else {
-        // Standard half-block (▀/▄) rendering — default "color" style
-        for (int y = 0; y < target_h; y += 2) {
-            std::ostringstream ss;
-            for (int x = 0; x < width_cols; ++x) {
-                RGB top = grid[y][x];
-                RGB bot = (y + 1 < target_h) ? grid[y + 1][x] : top;
-
-                bool top_bg = is_bg(top);
-                bool bot_bg = is_bg(bot);
-
-                if (top_bg && bot_bg) {
-                    ss << " ";
-                } else if (top_bg) {
-                    ss << "\033[38;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x84\033[0m"; // ▄
-                } else if (bot_bg) {
-                    ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m\xe2\x96\x80\033[0m"; // ▀
-                } else {
-                    ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m"
-                       << "\033[48;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x80\033[0m";
+            for (int dr = 0; dr < 4; ++dr) {
+                for (int dc = 0; dc < 2; ++dc) {
+                    int gy = py0 + dr, gx = px0 + dc;
+                    if (gy >= grid_h || gx >= grid_w) continue;
+                    const RGB& p = grid[gy][gx];
+                    bool on = dot_on[gy][gx] && !is_bg(p);
+                    if (on) {
+                        bitmask |= (1 << BRAILLE_BITS[dr][dc]);
+                        fg_r += p.r; fg_g += p.g; fg_b += p.b; fg_cnt++;
+                        any_fg = true; all_bg = false;
+                    } else {
+                        bg_r += p.r; bg_g += p.g; bg_b += p.b; bg_cnt++;
+                    }
                 }
             }
-            out_lines.push_back(ss.str());
+
+            if (all_bg) { line << " "; continue; }
+            if (fg_cnt == 0) { fg_r=bg_r; fg_g=bg_g; fg_b=bg_b; fg_cnt=std::max(1,bg_cnt); }
+            if (bg_cnt == 0) { bg_r=0;  bg_g=0;  bg_b=0;  bg_cnt=1; }
+
+            int fR=fg_r/fg_cnt, fG=fg_g/fg_cnt, fB=fg_b/fg_cnt;
+            int bR=bg_r/bg_cnt, bG=bg_g/bg_cnt, bB=bg_b/bg_cnt;
+
+            // Encode U+2800 + bitmask as UTF-8
+            unsigned int cp = 0x2800 + bitmask;
+            char utf8[4];
+            utf8[0] = (char)(0xE0 | (cp >> 12));
+            utf8[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            utf8[2] = (char)(0x80 | (cp & 0x3F));
+            utf8[3] = '\0';
+
+            line << "\033[38;2;" << fR << ";" << fG << ";" << fB << "m"
+                 << "\033[48;2;" << bR << ";" << bG << ";" << bB << "m"
+                 << utf8 << "\033[0m";
         }
+        out_lines.push_back(line.str());
     }
     return out_lines;
 }
@@ -1568,13 +1506,10 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             "1. ASCII Art (Default)",
             "2. Custom Image Art"
         };
-        std::string current_style = cfg.get_string("image_style", "color");
-        std::string style_disp = (current_style == "ascii") ? "Colored ASCII" : "Block Mosaic";
         std::vector<std::string> custom_img_opts = {
             "1. Set Image Path Manually",
             "2. Choose Image (File Manager)",
-            "3. Live Resize & Align Image",
-            "4. Toggle Render Style: " + style_disp
+            "3. Live Resize & Align Image"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1789,9 +1724,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         if (!cfg.get_string("image_path", "").empty()) {
                             state = 4; selected = 0; continue;
                         }
-                    } else if (selected == 3) {
-                        std::string current_style = cfg.get_string("image_style", "color");
-                        cfg.settings["image_style"] = (current_style == "color") ? "ascii" : "color";
                     }
                     if (state == 6) { state = 3; selected = 1; }
                 }
