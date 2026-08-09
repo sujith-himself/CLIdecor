@@ -1545,6 +1545,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         left_lines.push_back("");
         
         ThemeColors current_tc = get_theme_colors(cfg.get_string("theme", "default"));
+        std::string AC = "\033[1m" + get_gradient_color(current_tc, 1, 0);
         std::vector<std::string> header = {
             "██████ ██      ██ ██████  ███████ ██████  ██████  ██████ ",
             "██     ██      ██ ██   ██ ██      ██      ██  ██  ██   ██",
@@ -1557,9 +1558,9 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         }
         left_lines.push_back("");
         left_lines.push_back("");
-        left_lines.push_back("Press [\033[1;33mq\033[0m] to quit/back, [\033[1;33mUP/DOWN\033[0m] to navigate, [\033[1;32mENTER\033[0m] to confirm.");
+        left_lines.push_back("Press [" + AC + "q\033[0m] to quit/back, [" + AC + "UP/DOWN\033[0m] to navigate, [" + AC + "ENTER\033[0m] to confirm.");
         left_lines.push_back("");
-        left_lines.push_back("\033[1;37m=== SETTINGS ===\033[0m");
+        left_lines.push_back(AC + "=== SETTINGS ===\033[0m");
         left_lines.push_back("");
         
         std::vector<std::string> main_opts = {
@@ -1585,7 +1586,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 
         if (state == 0) { // Main Menu
             for (size_t i = 0; i < main_opts.size(); ++i) {
-                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
                 left_lines.push_back(prefix + main_opts[i] + "\033[0m");
             }
         } 
@@ -1593,29 +1594,29 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             std::vector<MenuItem>& menu = (state == 1) ? info_menu : app_menu;
             for (size_t i = 0; i < menu.size(); ++i) {
                 std::ostringstream ss;
-                ss << (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                ss << (i == (size_t)selected ? AC + "> " : "  ");
                 ss << std::left << std::setw(20) << menu[i].label << "\033[0m";
                 std::string current_val = cfg.get_string(menu[i].key, "");
                 if (menu[i].options.empty()) {
                     if (current_val.empty()) current_val = "1";
                     bool is_on = (current_val == "1" || current_val == "true" || current_val == "yes" || current_val == "on");
-                    ss << (is_on ? "\033[1;32m[ ON  ]" : "\033[1;31m[ OFF ]") << "\033[0m";
+                    ss << (is_on ? AC + "[ ON  ]" : "\033[1;31m[ OFF ]") << "\033[0m";
                 } else {
                     if (current_val.empty()) current_val = menu[i].options[0];
-                    ss << "\033[1;36m< " << current_val << " >\033[0m";
+                    ss << AC << "< " << current_val << " >\033[0m";
                 }
                 left_lines.push_back(ss.str());
             }
         }
         else if (state == 3) { // Side Art
             for (size_t i = 0; i < side_art_opts.size(); ++i) {
-                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
                 left_lines.push_back(prefix + side_art_opts[i] + "\033[0m");
             }
         }
         else if (state == 6) { // Custom Image Art
             for (size_t i = 0; i < custom_img_opts.size(); ++i) {
-                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
                 if ((i == 2 || i == 3) && cfg.get_string("image_path", "").empty()) {
                     left_lines.push_back(prefix + "\033[1;30m" + custom_img_opts[i] + " (Requires Custom Image)\033[0m");
                 } else {
@@ -1625,23 +1626,23 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         }
         else if (state == 4) { // Live Resize & Align
             left_lines.push_back("");
-            left_lines.push_back("\033[1;33m=== Live Resize & Align ===\033[0m");
-            left_lines.push_back("[\033[1;32mUP/DOWN\033[0m] Stretch Height");
-            left_lines.push_back("[\033[1;32mLEFT/RIGHT\033[0m] Stretch Width");
-            left_lines.push_back("[\033[1;32mW/A/S/D\033[0m] Move Image");
-            left_lines.push_back("[\033[1;32mENTER or ESC\033[0m] Finish");
+            left_lines.push_back(AC + "=== Live Resize & Align ===\033[0m");
+            left_lines.push_back("[" + AC + "UP/DOWN\033[0m] Stretch Height");
+            left_lines.push_back("[" + AC + "LEFT/RIGHT\033[0m] Stretch Width");
+            left_lines.push_back("[" + AC + "W/A/S/D\033[0m] Move Image");
+            left_lines.push_back("[" + AC + "ENTER or ESC\033[0m] Finish");
             left_lines.push_back("");
             left_lines.push_back("\033[1;30mX Offset: " + std::to_string(cfg.get_int("image_pad_x", 0)) + " | Y Offset: " + std::to_string(cfg.get_int("image_pad_y", 0)) + "\033[0m");
             left_lines.push_back("\033[1;30mX Scale: " + cfg.get_string("image_scale_x", "1.0") + " | Y Scale: " + cfg.get_string("image_scale_y", "1.0") + "\033[0m");
         }
         else if (state == 5) { // Reminder Box
             for (size_t i = 0; i < rem_opts.size(); ++i) {
-                std::string prefix = (i == (size_t)selected ? "\033[1;32m> " : "  ");
+                std::string prefix = (i == (size_t)selected ? AC + "> " : "  ");
                 left_lines.push_back(prefix + rem_opts[i] + "\033[0m");
             }
         }
         std::vector<std::string> right_lines = generate_preview(cfg);
-        right_lines.insert(right_lines.begin(), "\033[1;37m=== LIVE PREVIEW ===\033[0m");
+        right_lines.insert(right_lines.begin(), AC + "=== LIVE PREVIEW ===\033[0m");
         right_lines.insert(right_lines.begin() + 1, "");
         
         std::cout << "\033[2J"; // Clear screen once per frame
