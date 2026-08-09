@@ -1542,7 +1542,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Show Disk", "show_disk", {}},
         {"Show Battery", "show_battery", {}},
         {"Show Local IP", "show_localip", {}},
-        {"Show Public IP", "show_publicip", {}}
+        {"Show Public IP", "show_publicip", {}},
+        {"Show Ping", "show_ping", {}},
+        {"Show Locale", "show_locale", {}},
+        {"Show Weather", "show_weather", {}},
+        {"Show Git", "show_git", {}}
     };
     
     std::vector<MenuItem> app_menu = {
@@ -1629,7 +1633,19 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                 std::ostringstream ss;
                 ss << (i == (size_t)selected ? AC + "> " : "  ");
                 ss << std::left << std::setw(20) << menu[i].label << "\033[0m";
-                std::string current_val = cfg.get_string(menu[i].key, "");
+                std::string default_val = "0";
+                if (menu[i].options.empty()) {
+                    for (auto& mod : SysInfo::get_registry()) {
+                        if (mod.config_key == menu[i].key) {
+                            default_val = mod.default_enabled ? "1" : "0";
+                            break;
+                        }
+                    }
+                } else if (!menu[i].options.empty()) {
+                    default_val = menu[i].options[0];
+                }
+                
+                std::string current_val = cfg.get_string(menu[i].key, default_val);
                 if (menu[i].options.empty()) {
                     if (current_val.empty()) current_val = "1";
                     bool is_on = (current_val == "1" || current_val == "true" || current_val == "yes" || current_val == "on");
