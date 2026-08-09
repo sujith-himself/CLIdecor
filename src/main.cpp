@@ -1265,9 +1265,9 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
 
         std::string bg_color = "";
-        if (theme_colors.gradient_end.size() >= 7 && theme_colors.gradient_end[0] == '#') {
+        if (theme_colors.end_hex.size() >= 7 && theme_colors.end_hex[0] == '#') {
             int r = 0, g = 0, b = 0;
-            if (sscanf(theme_colors.gradient_end.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+            if (sscanf(theme_colors.end_hex.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
                 r = (int)(r * 0.3);
                 g = (int)(g * 0.3);
                 b = (int)(b * 0.3);
@@ -1367,7 +1367,6 @@ std::vector<std::string> generate_preview(Config& cfg) {
     std::vector<std::string> new_text(pad_text, "");
     new_text.insert(new_text.end(), text_block.begin(), text_block.end());
     while (new_text.size() < max_lines) new_text.push_back("");
-    std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
     std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
 
     for (size_t i = 0; i < max_lines; ++i) {
