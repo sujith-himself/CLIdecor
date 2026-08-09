@@ -1452,10 +1452,11 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         std::vector<std::string> left_lines;
         ThemeColors current_tc = get_theme_colors(cfg.get_string("theme", "default"));
         std::vector<std::string> header = {
-            "   ___ _    ___   ___  ___ ___ ___  ___ ",
-            "  / __| |  |_ _| |   \\| __/ __/ _ \\| _ \\",
-            " | (__| |__ | |  | |) | _| (__ (_) |   /",
-            "  \\___|____|___| |___/|___\\___\\___/|_|_\\"
+            "██████ ██      ██ ██████  ███████ ██████  ██████  ██████ ",
+            "██     ██      ██ ██   ██ ██      ██      ██  ██  ██   ██",
+            "██     ██      ██ ██   ██ █████   ██      ██  ██  ██████ ",
+            "██     ██      ██ ██   ██ ██      ██      ██  ██  ██   ██",
+            "██████ ███████ ██ ██████  ███████ ██████  ██████  ██   ██"
         };
         for (size_t i = 0; i < header.size(); ++i) {
             left_lines.push_back(get_gradient_color(current_tc, header.size(), i) + header[i] + "\033[0m");
@@ -1738,10 +1739,13 @@ int main(int argc, char* argv[]) {
         if (arg == "--help" || arg == "-h") {
             std::cout << "CLI DECOR — neofetch replacement (C++ engine)\n\n"
                       << "Usage:\n"
-                      << "  clidecor              run normally\n"
-                      << "  clidecor -s           open interactive settings menu\n"
+                      << "  clidecor              run normally (print preview)\n"
+                      << "  clidecor -p, --preview force print preview\n"
+                      << "  clidecor -s, --settings open interactive settings menu\n"
+                      << "  clidecor -t, --theme <name> change theme (e.g. dracula)\n"
+                      << "  clidecor --remind \"text\"  update reminder box text\n"
                       << "  clidecor --refresh    clear cache and re-render\n"
-                      << "  clidecor --help       show this message\n\n"
+                      << "  clidecor -h, --help   show this message\n\n"
                       << "Config: ~/.config/clidecor/config.conf\n";
             return 0;
         } else if (arg == "--refresh") {
@@ -1752,6 +1756,32 @@ int main(int argc, char* argv[]) {
             Config cfg = Config::load_from_file(config_path);
             run_settings_menu(cfg, config_path);
             return 0;
+        } else if (arg == "-t" || arg == "--theme") {
+            if (argc > 2) {
+                std::string theme_name = argv[2];
+                std::string config_path = Config::get_default_config_path();
+                Config cfg = Config::load_from_file(config_path);
+                cfg.settings["theme"] = theme_name;
+                cfg.save_to_file(config_path);
+                std::cout << "\033[1;32mTheme updated to: " << theme_name << "\033[0m\n";
+            } else {
+                std::cout << "Usage: clidecor -t <theme_name>\n";
+            }
+            return 0;
+        } else if (arg == "--remind") {
+            if (argc > 2) {
+                std::string text = argv[2];
+                std::string config_path = Config::get_default_config_path();
+                Config cfg = Config::load_from_file(config_path);
+                cfg.settings["reminder_text"] = text;
+                cfg.save_to_file(config_path);
+                std::cout << "\033[1;32mReminder updated.\033[0m\n";
+            } else {
+                std::cout << "Usage: clidecor --remind \"your text\"\n";
+            }
+            return 0;
+        } else if (arg == "-p" || arg == "--preview") {
+            // Fall through to the preview generation at the bottom of main
         } else if (arg == "update") {
             std::cout << "\033[1;36m[\xe2\x86\x93] Fetching latest CLIdecor from GitHub...\033[0m\n";
             #ifdef _WIN32
