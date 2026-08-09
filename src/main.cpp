@@ -47,6 +47,10 @@ void handle_signal(int sig) {
     std::cout << "\033[?1049l";
     std::cout << "\033[?25h\033[?1000l\033[?1007l\033[0m\n";
     std::cout.flush();
+#ifndef _WIN32
+    int res = system("stty sane 2>/dev/null");
+    (void)res;
+#endif
     std::exit(sig);
 }
 
