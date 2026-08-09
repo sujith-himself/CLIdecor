@@ -1609,7 +1609,8 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         };
         std::vector<std::string> custom_txt_opts = {
             "1. Set ASCII Text File Path",
-            "2. Generator URL (asciiart.website)"
+            "2. Generator URL (asciiart.website)",
+            "3. Paste/Edit ASCII Art (Opens Editor)"
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1857,6 +1858,30 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                         system("xdg-open https://asciiart.website/convert.php 2>/dev/null");
 #endif
                         std::this_thread::sleep_for(std::chrono::seconds(2));
+                    } else if (selected == 2) {
+                        std::string ascii_file = "custom_ascii.txt";
+                        size_t slash = config_path.find_last_of("/\\");
+                        if (slash != std::string::npos) {
+                            ascii_file = config_path.substr(0, slash) + "/custom_ascii.txt";
+                        }
+                        
+                        std::cout << "\033[?1049l\033[?25h\033[?1000l\033[?1007l";
+                        std::cout.flush();
+                        
+#ifdef _WIN32
+                        std::string cmd = "notepad \"" + ascii_file + "\"";
+#else
+                        std::string editor = "nano";
+                        if (std::getenv("EDITOR")) editor = std::getenv("EDITOR");
+                        std::string cmd = editor + " \"" + ascii_file + "\"";
+#endif
+                        int res = system(cmd.c_str());
+                        (void)res;
+                        
+                        std::cout << "\033[?1049h\033[?25l\033[?1000l\033[?1007l";
+                        std::cout.flush();
+                        
+                        cfg.settings["ascii_path"] = ascii_file;
                     }
                     if (state == 7) { state = 3; selected = 2; }
                 }
