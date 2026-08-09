@@ -1422,9 +1422,7 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         {"Show Disk", "show_disk", {}},
         {"Show Battery", "show_battery", {}},
         {"Show Local IP", "show_localip", {}},
-        {"Show Public IP", "show_publicip", {}},
-        {"Show Locale", "show_locale", {}},
-        {"Show Weather", "show_weather", {}}
+        {"Show Public IP", "show_publicip", {}}
     };
     
     std::vector<MenuItem> app_menu = {
@@ -1567,9 +1565,40 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
         std::cout << std::flush;
         
         int key = get_keypress();
-        if (key == 113 || key == 27) { // q or ESC
-            if (state == 0) break; // exit settings
+        
+        if (key == 27) { // ESC
+            break;
+        }
+        if (key == 113) { // q
+            if (state == 0) break;
+            else if (state == 4) { state = 6; selected = 2; continue; }
             else { state = 0; selected = 0; continue; }
+        }
+
+        if (state == 4) { // Live Resize & Align (Process ALL keys)
+            float sx = 1.0f; try { sx = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
+            float sy = 1.0f; try { sy = std::stod(cfg.get_string("image_scale_y", "1.0")); } catch(...) {}
+            
+            if (key == 119 || key == 87) { // W
+                cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) - 1);
+            } else if (key == 115 || key == 83) { // S
+                cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) + 1);
+            } else if (key == 97 || key == 65) { // A
+                cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) - 1);
+            } else if (key == 100 || key == 68) { // D
+                cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) + 1);
+            } else if (key == 1001) { // UP
+                cfg.settings["image_scale_y"] = std::to_string(sy + 0.10f);
+            } else if (key == 1002) { // DOWN
+                if (sy > 0.1f) cfg.settings["image_scale_y"] = std::to_string(sy - 0.10f);
+            } else if (key == 1003) { // LEFT
+                if (sx > 0.1f) cfg.settings["image_scale_x"] = std::to_string(sx - 0.10f);
+            } else if (key == 1004) { // RIGHT
+                cfg.settings["image_scale_x"] = std::to_string(sx + 0.10f);
+            } else if (key == 13 || key == 10) {
+                state = 6; selected = 2; // Return to Custom Image Art
+            }
+            continue;
         }
         if (key == 1001) { // UP
             int s_max = (state == 0) ? main_opts.size() : (state == 3 ? side_art_opts.size() : (state == 6 ? custom_img_opts.size() : (state == 5 ? rem_opts.size() : ((state == 1) ? info_menu.size() : app_menu.size()))));
@@ -1699,30 +1728,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                     }
                     state = 0; selected = 0;
                 }
-            }
-        }
-        else if (state == 4) { // Live Resize & Align (Process ALL keys)
-            float sx = 1.0f; try { sx = std::stod(cfg.get_string("image_scale_x", "1.0")); } catch(...) {}
-            float sy = 1.0f; try { sy = std::stod(cfg.get_string("image_scale_y", "1.0")); } catch(...) {}
-            
-            if (key == 119 || key == 87) { // W
-                cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) - 1);
-            } else if (key == 115 || key == 83) { // S
-                cfg.settings["image_pad_y"] = std::to_string(cfg.get_int("image_pad_y", 0) + 1);
-            } else if (key == 97 || key == 65) { // A
-                cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) - 1);
-            } else if (key == 100 || key == 68) { // D
-                cfg.settings["image_pad_x"] = std::to_string(cfg.get_int("image_pad_x", 0) + 1);
-            } else if (key == 1001) { // UP
-                cfg.settings["image_scale_y"] = std::to_string(sy + 0.10f);
-            } else if (key == 1002) { // DOWN
-                if (sy > 0.1f) cfg.settings["image_scale_y"] = std::to_string(sy - 0.10f);
-            } else if (key == 1003) { // LEFT
-                if (sx > 0.1f) cfg.settings["image_scale_x"] = std::to_string(sx - 0.10f);
-            } else if (key == 1004) { // RIGHT
-                cfg.settings["image_scale_x"] = std::to_string(sx + 0.10f);
-            } else if (key == 13 || key == 10 || key == 27 || key == 113) {
-                state = 6; selected = 2; // Return to Custom Image Art
             }
         }
     }
