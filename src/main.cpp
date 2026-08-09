@@ -1290,16 +1290,10 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
     std::vector<std::string> logo_block;
-    std::string img_path = cfg.get_string("image_path", "");
-    int img_width = cfg.get_int("image_width", 28);
+    std::string img_path = cfg.get_string("image_path", "");    int img_width = cfg.get_int("image_width", 28);
     std::string img_style = cfg.get_string("image_style", "color");
-    int pixel_size = cfg.get_int("pixel_size", 1);
-    int mosaic_strength = cfg.get_int("pixel_strength", 10); 
-    
-    // Scale up the resolution based on mosaic strength (10 = base resolution, 0 = 2.5x resolution)
-    float mosaic_mult = 1.0f + ((10 - mosaic_strength) * 0.15f);
-    int effective_img_width = (int)(img_width * mosaic_mult);
-    
+    int mosaic_strength = cfg.get_int("pixel_strength", 0); 
+    int pixel_size = 1 + (mosaic_strength * 3) / 10; // 0=1, 10=4
     int blur_radius = 0;
     
     float scale_x = 1.0f;
@@ -1314,7 +1308,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     int max_h = text_block.size();
 
     if (!img_path.empty()) {
-        logo_block = ImgRender::render_image(img_path, effective_img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
+        logo_block = ImgRender::render_image(img_path, img_width, scale_x, scale_y, img_style, pixel_size, blur_radius, max_h);
     }
 
     if (logo_block.empty()) {
