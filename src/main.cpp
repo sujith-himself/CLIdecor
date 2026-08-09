@@ -1264,15 +1264,20 @@ std::vector<std::string> generate_preview(Config& cfg) {
             if ((int)l.length() > longest) longest = l.length();
         }
 
-        std::string bg_color = AC;
-        size_t pos = bg_color.find("38;2;");
-        if (pos != std::string::npos) {
-            bg_color.replace(pos, 5, "48;2;");
-        } else {
-            pos = bg_color.find("[3");
-            if (pos != std::string::npos) {
-                bg_color[pos + 1] = '4';
+        std::string bg_color = "";
+        if (theme_colors.gradient_end.size() >= 7 && theme_colors.gradient_end[0] == '#') {
+            int r = 0, g = 0, b = 0;
+            if (sscanf(theme_colors.gradient_end.c_str() + 1, "%02x%02x%02x", &r, &g, &b) == 3) {
+                r = (int)(r * 0.3);
+                g = (int)(g * 0.3);
+                b = (int)(b * 0.3);
+                char bg_buf[64];
+                snprintf(bg_buf, sizeof(bg_buf), "\033[48;2;%d;%d;%dm", r, g, b);
+                bg_color = bg_buf;
             }
+        }
+        if (bg_color.empty()) {
+            bg_color = "\033[48;2;30;30;30m"; // Dark grey fallback
         }
         std::string fg_color = "\033[1;37m"; 
 
@@ -1363,19 +1368,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
     new_text.insert(new_text.end(), text_block.begin(), text_block.end());
     while (new_text.size() < max_lines) new_text.push_back("");
     std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
-    std::string layout = cfg.get_string("layout", "image_left");
-
-    if (layout == "image_top") {
-        for (const auto& l : logo_block) out.push_back(l);
-        out.push_back("");
-        for (const auto& t : text_block) out.push_back(t);
-        return out;
-    } else if (layout == "image_bottom") {
-        for (const auto& t : text_block) out.push_back(t);
-        out.push_back("");
-        for (const auto& l : logo_block) out.push_back(l);
-        return out;
-    }
+    std::string x_pad_str = (pad_x > 0) ? std::string(pad_x, ' ') : "";
 
     for (size_t i = 0; i < max_lines; ++i) {
         std::string l_line = new_logo[i];
@@ -1405,12 +1398,7 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
         
         std::string t_line = (i < new_text.size()) ? new_text[i] : "";
-        
-        if (layout == "image_right") {
-            out.push_back(t_line + std::string(3, ' ') + l_line);
-        } else { // image_left
-            out.push_back(l_line + std::string(3, ' ') + t_line);
-        }
+        out.push_back(l_line + std::string(3, ' ') + t_line);
     }
     return out;
 }
@@ -1442,7 +1430,6 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
     
     std::vector<MenuItem> app_menu = {
         {"Theme", "theme", {"default", "hacker", "dracula", "nord", "fire", "gold", "chameleon"}},
-        {"Layout", "layout", {"image_left", "image_right", "image_top", "image_bottom"}},
         {"Header Type", "header_type", {"os", "figlet"}},
         {"Show Bars", "show_bars", {}}
     };
@@ -1464,14 +1451,19 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
 
     while (true) {
         std::vector<std::string> left_lines;
-        left_lines.push_back("\033[1;36m  ██████╗ ██╗      ██╗    ██████╗  ███████╗ ██████╗  ██████╗  ██████╗ \033[0m");
-        left_lines.push_back("\033[1;36m ██╔════╝ ██║      ██║    ██╔══██╗ ██╔════╝ ██╔════╝ ██╔═══██╗ ██╔══██╗\033[0m");
-        left_lines.push_back("\033[1;36m ██║      ██║      ██║    ██║  ██║ █████╗   ██║      ██║   ██║ ██████╔╝\033[0m");
-        left_lines.push_back("\033[1;36m ██║      ██║      ██║    ██║  ██║ ██╔══╝   ██║      ██║   ██║ ██╔══██╗\033[0m");
-        left_lines.push_back("\033[1;36m ╚██████╗ ███████╗ ██║    ██████╔╝ ███████╗ ╚██████╗ ╚██████╔╝ ██║  ██║\033[0m");
-        left_lines.push_back("\033[1;36m  ╚═════╝ ╚══════╝ ╚═╝    ╚═════╝  ╚══════╝  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝\033[0m");
+        ThemeColors current_tc = get_theme_colors(cfg.get_string("theme", "default"));
+        std::vector<std::string> header = {
+            "   ___ _    ___   ___  ___ ___ ___  ___ ",
+            "  / __| |  |_ _| |   \\| __/ __/ _ \\| _ \\",
+            " | (__| |__ | |  | |) | _| (__ (_) |   /",
+            "  \\___|____|___| |___/|___\\___\\___/|_|_\\"
+        };
+        for (size_t i = 0; i < header.size(); ++i) {
+            left_lines.push_back(get_gradient_color(current_tc, header.size(), i) + header[i] + "\033[0m");
+        }
         left_lines.push_back("");
-        left_lines.push_back("Press [\033[1;33mq\033[0m] to quit/back, [\033[1;33mUP/DOWN\033[0m] to navigate, [\033[1;32mENTER\033[0m] to confirm/edit.");
+        left_lines.push_back("");
+        left_lines.push_back("Press [\033[1;33mq\033[0m] to quit/back, [\033[1;33mUP/DOWN\033[0m] to navigate, [\033[1;32mENTER\033[0m] to confirm.");
         left_lines.push_back("");
         left_lines.push_back("\033[1;37m=== SETTINGS ===\033[0m");
         left_lines.push_back("");
