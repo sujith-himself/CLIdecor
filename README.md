@@ -46,8 +46,9 @@ cd CLIdecor
 
 | Feature | Details |
 |---|---|
-| ⚡ **Sub-5ms startup** | Native C++17, no Python, no shell forks |
+| ⚡ **Sub-5ms startup** | Native C++17, zero-lag `<filesystem>` parsing, no shell forks |
 | 🖼️ **Custom Image Rendering** | PNG/JPG/BMP displayed as half-block TrueColor art |
+| 🔠 **Custom ASCII Art** | Seamlessly paste multi-line ASCII art directly via the built-in editor hook, perfectly colorized with your theme |
 | 🎨 **Live Themes** | 6 built-in themes, changes update the preview in real time |
 | 🦎 **Chameleon Mode** | Auto-extracts dominant color from your image and adapts the UI |
 | 🖥️ **Cross-platform** | Linux, macOS, Windows Terminal |
@@ -166,5 +167,5 @@ MIT License — free to use, modify, and distribute.
 ---
 
 <div align="center">
-  <sub>Built with ❤️ and C++17 · <a href="https://github.com/sujith-himself/CLIdecor/issues">Report a Bug</a> · <a href="https://github.com/sujith-himself/CLIdecor/issues">Request a Feature</a></sub>
+  <sub>Built with C++17 · <a href="https://github.com/sujith-himself/CLIdecor/issues">Report a Bug</a> · <a href="https://github.com/sujith-himself/CLIdecor/issues">Request a Feature</a></sub>
 </div>
