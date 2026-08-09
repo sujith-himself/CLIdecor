@@ -939,15 +939,19 @@ std::vector<std::string> render_image(
 
     if (style == "ascii") {
         for (int y = 0; y < target_h; ++y) {
-            std::string line = "";
+            std::ostringstream line;
             for (int x = 0; x < width_cols; ++x) {
                 const RGB& p = grid[y][x];
                 float bright = (p.r * 0.299f + p.g * 0.587f + p.b * 0.114f) / 255.0f;
                 int idx = (int)(bright * (ASCII_RAMP.length() - 1));
                 idx = std::clamp(idx, 0, (int)ASCII_RAMP.length() - 1);
-                line += ASCII_RAMP[idx];
+                if (is_bg(p)) {
+                    line << " ";
+                } else {
+                    line << "\033[38;2;" << (int)p.r << ";" << (int)p.g << ";" << (int)p.b << "m" << ASCII_RAMP[idx] << "\033[0m";
+                }
             }
-            out_lines.push_back(line);
+            out_lines.push_back(line.str());
         }
     } else {
         for (int y = 0; y < target_h; y += 2) {
@@ -1290,10 +1294,10 @@ std::vector<std::string> generate_preview(Config& cfg) {
         }
     }
     std::vector<std::string> logo_block;
-    std::string img_path = cfg.get_string("image_path", "");    int img_width = cfg.get_int("image_width", 28);
+    std::string img_path = cfg.get_string("image_path", "");
+    int img_width = cfg.get_int("image_width", 28);
     std::string img_style = cfg.get_string("image_style", "color");
-    int mosaic_strength = cfg.get_int("pixel_strength", 0); 
-    int pixel_size = 1 + (mosaic_strength * 3) / 10; // 0=1, 10=4
+    int pixel_size = 1;
     int blur_radius = 0;
     
     float scale_x = 1.0f;
@@ -1482,11 +1486,13 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
             "1. ASCII Art (Default)",
             "2. Custom Image Art"
         };
+        std::string current_style = cfg.get_string("image_style", "color");
+        std::string style_disp = (current_style == "ascii") ? "Colored ASCII" : "Block Mosaic";
         std::vector<std::string> custom_img_opts = {
             "1. Set Image Path Manually",
             "2. Choose Image (File Manager)",
             "3. Live Resize & Align Image",
-            "4. Adjust Mosaic Effect"
+            "4. Toggle Render Style: " + style_disp
         };
         std::vector<std::string> rem_opts = {
             "1. Set New Reminder",
@@ -1702,18 +1708,8 @@ void run_settings_menu(Config& cfg, const std::string& config_path) {
                             state = 4; selected = 0; continue;
                         }
                     } else if (selected == 3) {
-                        if (!cfg.get_string("image_path", "").empty()) {
-                            std::cout << "\033[" << (left_lines.size() + 2) << ";1H";
-                            std::cout << "\033[1;36mEnter Mosaic Strength (0 to 10): \033[0m";
-                            std::cout << "\033[?25h";
-                            std::string b;
-                            std::getline(std::cin, b);
-                            std::cout << "\033[?25l";
-                            try {
-                                int br = std::stoi(b);
-                                cfg.settings["pixel_strength"] = std::to_string(std::clamp(br, 0, 10));
-                            } catch(...) {}
-                        }
+                        std::string current_style = cfg.get_string("image_style", "color");
+                        cfg.settings["image_style"] = (current_style == "color") ? "ascii" : "color";
                     }
                     if (state == 6) { state = 3; selected = 1; }
                 }
