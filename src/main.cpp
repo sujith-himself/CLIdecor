@@ -861,9 +861,9 @@ std::vector<std::string> render_image(
     int base_width,
     float scale_x = 1.0f,
     float scale_y = 1.0f,
-    const std::string& /*style*/ = "color", // style ignored — always braille
-    int /*block_size*/ = 1,                 // block_size ignored
-    int /*blur_radius*/ = 0,                // blur removed
+    const std::string& /*style*/ = "color",
+    int /*block_size*/ = 1,
+    int /*blur_radius*/ = 0,
     int max_h = 0
 ) {
     std::vector<std::string> out_lines;
@@ -873,129 +873,52 @@ std::vector<std::string> render_image(
     if (!data) return out_lines;
     if (base_width <= 0) base_width = 28;
 
-    // ── Geometry ──────────────────────────────────────────────────────────────
-    // Braille: each output character = 2 cols × 4 rows of image pixels
-    // We maintain the same visual HEIGHT as the old half-block renderer.
     float aspect = (float)orig_h / (float)orig_w;
     int width_cols = std::max(1, (int)(base_width * scale_x));
-    int half_h = std::max(2, (int)(base_width * aspect * 0.55f * scale_y)); // half-block line count
-    if (half_h % 2 != 0) half_h++;
-    int braille_lines = half_h / 2;          // output lines (same visual height as half-block)
-    int grid_h = braille_lines * 4;          // image rows we sample
-    int grid_w = width_cols * 2;             // image cols we sample
+    int target_h   = std::max(2, (int)(base_width * aspect * 0.55f * 2.0f * scale_y));
+    if (target_h % 2 != 0) target_h++;
 
-    // ── Bilinear-sampled high-res grid ────────────────────────────────────────
-    std::vector<std::vector<RGB>> grid(grid_h, std::vector<RGB>(grid_w));
-    for (int y = 0; y < grid_h; ++y) {
-        for (int x = 0; x < grid_w; ++x) {
-            float rx = ((float)x / grid_w) * orig_w;
-            float ry = ((float)y / grid_h) * orig_h;
-            grid[y][x] = get_bilinear(data, orig_w, orig_h, channels, rx, ry);
+    std::vector<std::vector<RGB>> grid(target_h, std::vector<RGB>(width_cols));
+    for (int y = 0; y < target_h; ++y)
+        for (int x = 0; x < width_cols; ++x) {
+            float rx = ((float)x / width_cols) * orig_w;
+            float ry = ((float)y / target_h)   * orig_h;
+            grid[y][x] = get_sample(data, orig_w, orig_h, channels, rx, ry);
         }
-    }
     stbi_image_free(data);
 
-    // ── Chameleon: compute dominant color from image ───────────────────────────
-    long long total_r = 0, total_g = 0, total_b = 0;
-    int pixel_count = 0;
-    for (int y = 0; y < grid_h; ++y)
-        for (int x = 0; x < grid_w; ++x)
-            if (!is_bg(grid[y][x])) {
-                total_r += grid[y][x].r;
-                total_g += grid[y][x].g;
-                total_b += grid[y][x].b;
-                pixel_count++;
-            }
-    if (pixel_count > 0) {
-        int ar = total_r/pixel_count, ag = total_g/pixel_count, ab = total_b/pixel_count;
-        char hex[8]; snprintf(hex, sizeof(hex), "#%02X%02X%02X", ar, ag, ab);
+    // Chameleon color
+    long long tr = 0, tg = 0, tb = 0; int pc = 0;
+    for (int y = 0; y < target_h; ++y)
+        for (int x = 0; x < width_cols; ++x)
+            if (!is_bg(grid[y][x])) { tr += grid[y][x].r; tg += grid[y][x].g; tb += grid[y][x].b; pc++; }
+    if (pc > 0) {
+        int ar = tr/pc, ag = tg/pc, ab = tb/pc;
+        char hex[8];     snprintf(hex,     sizeof(hex),     "#%02X%02X%02X", ar, ag, ab);
         char end_hex[8]; snprintf(end_hex, sizeof(end_hex), "#%02X%02X%02X",
             std::min(255,(int)(ar*1.5)), std::min(255,(int)(ag*1.5)), std::min(255,(int)(ab*1.5)));
         chameleon_theme = {hex, end_hex};
     }
 
-    // ── Floyd-Steinberg dithered Braille rendering ────────────────────────────
-    // Braille Unicode: U+2800 + bit-pattern
-    //   Dot positions within each 2×4 block:
-    //     col0,row0=bit0  col1,row0=bit3
-    //     col0,row1=bit1  col1,row1=bit4
-    //     col0,row2=bit2  col1,row2=bit5
-    //     col0,row3=bit6  col1,row3=bit7
-    static const int BRAILLE_BITS[4][2] = {{0,3},{1,4},{2,5},{6,7}};
-
-    // Build brightness map with F-S error accumulator
-    std::vector<std::vector<float>> bright(grid_h, std::vector<float>(grid_w, 0.0f));
-    for (int y = 0; y < grid_h; ++y)
-        for (int x = 0; x < grid_w; ++x) {
-            const RGB& p = grid[y][x];
-            bright[y][x] = p.r * 0.299f + p.g * 0.587f + p.b * 0.114f;
-        }
-
-    // Floyd-Steinberg dithering on the brightness channel
-    std::vector<std::vector<bool>> dot_on(grid_h, std::vector<bool>(grid_w, false));
-    for (int y = 0; y < grid_h; ++y) {
-        for (int x = 0; x < grid_w; ++x) {
-            float old_val = std::clamp(bright[y][x], 0.0f, 255.0f);
-            bool on = old_val >= 128.0f;
-            dot_on[y][x] = on;
-            float err = old_val - (on ? 255.0f : 0.0f);
-            // Distribute error to neighbors (classic F-S coefficients)
-            if (x + 1 < grid_w)             bright[y][x+1]   += err * (7.0f/16.0f);
-            if (y + 1 < grid_h && x > 0)    bright[y+1][x-1] += err * (3.0f/16.0f);
-            if (y + 1 < grid_h)              bright[y+1][x]   += err * (5.0f/16.0f);
-            if (y + 1 < grid_h && x+1 < grid_w) bright[y+1][x+1] += err * (1.0f/16.0f);
-        }
-    }
-
-    // Encode braille characters
-    for (int by = 0; by < braille_lines; ++by) {
-        std::ostringstream line;
-        for (int bx = 0; bx < width_cols; ++bx) {
-            // 2×4 pixel block
-            int py0 = by * 4, px0 = bx * 2;
-
-            // Build braille bit-pattern + accumulate FG/BG colors
-            int bitmask = 0;
-            int fg_r=0,fg_g=0,fg_b=0,fg_cnt=0;
-            int bg_r=0,bg_g=0,bg_b=0,bg_cnt=0;
-            bool any_fg = false, all_bg = true;
-
-            for (int dr = 0; dr < 4; ++dr) {
-                for (int dc = 0; dc < 2; ++dc) {
-                    int gy = py0 + dr, gx = px0 + dc;
-                    if (gy >= grid_h || gx >= grid_w) continue;
-                    const RGB& p = grid[gy][gx];
-                    bool on = dot_on[gy][gx] && !is_bg(p);
-                    if (on) {
-                        bitmask |= (1 << BRAILLE_BITS[dr][dc]);
-                        fg_r += p.r; fg_g += p.g; fg_b += p.b; fg_cnt++;
-                        any_fg = true; all_bg = false;
-                    } else {
-                        bg_r += p.r; bg_g += p.g; bg_b += p.b; bg_cnt++;
-                    }
-                }
+    // Half-block rendering: 2 pixel rows → 1 terminal line (▀ top / ▄ bottom)
+    for (int y = 0; y < target_h; y += 2) {
+        std::ostringstream ss;
+        for (int x = 0; x < width_cols; ++x) {
+            RGB top = grid[y][x];
+            RGB bot = (y + 1 < target_h) ? grid[y + 1][x] : top;
+            bool top_bg = is_bg(top), bot_bg = is_bg(bot);
+            if (top_bg && bot_bg) {
+                ss << " ";
+            } else if (top_bg) {
+                ss << "\033[38;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x84\033[0m";
+            } else if (bot_bg) {
+                ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m\xe2\x96\x80\033[0m";
+            } else {
+                ss << "\033[38;2;" << (int)top.r << ";" << (int)top.g << ";" << (int)top.b << "m"
+                   << "\033[48;2;" << (int)bot.r << ";" << (int)bot.g << ";" << (int)bot.b << "m\xe2\x96\x80\033[0m";
             }
-
-            if (all_bg) { line << " "; continue; }
-            if (fg_cnt == 0) { fg_r=bg_r; fg_g=bg_g; fg_b=bg_b; fg_cnt=std::max(1,bg_cnt); }
-            if (bg_cnt == 0) { bg_r=0;  bg_g=0;  bg_b=0;  bg_cnt=1; }
-
-            int fR=fg_r/fg_cnt, fG=fg_g/fg_cnt, fB=fg_b/fg_cnt;
-            int bR=bg_r/bg_cnt, bG=bg_g/bg_cnt, bB=bg_b/bg_cnt;
-
-            // Encode U+2800 + bitmask as UTF-8
-            unsigned int cp = 0x2800 + bitmask;
-            char utf8[4];
-            utf8[0] = (char)(0xE0 | (cp >> 12));
-            utf8[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-            utf8[2] = (char)(0x80 | (cp & 0x3F));
-            utf8[3] = '\0';
-
-            line << "\033[38;2;" << fR << ";" << fG << ";" << fB << "m"
-                 << "\033[48;2;" << bR << ";" << bG << ";" << bB << "m"
-                 << utf8 << "\033[0m";
         }
-        out_lines.push_back(line.str());
+        out_lines.push_back(ss.str());
     }
     return out_lines;
 }
